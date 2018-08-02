@@ -5,9 +5,7 @@
 #reading in the latest csv
 library(tidyverse)
 
-check_data <- read_csv("data/Asset Form_WIDE_v1.0.csv")
-
-
+check_data <- read_csv("data/Asset Form_WIDE_v1.1.csv")
 
 #list of things to check:
 # 1. CNIC length (cnic): should have length 13 digits

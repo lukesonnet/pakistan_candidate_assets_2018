@@ -23,7 +23,7 @@ check_data <- read_csv("data/Asset Form_WIDE_v1.1.csv")
 #    h. current_FY_net_assets:contact_num
 #    exclude: year_income, year_agri_income
 
-check_data %>%
+errs <- check_data %>%
   mutate_at( #check for numeric entries are all numeric
     vars(starts_with("im_prop_pak"),bus_cap_wpk_num, bus_cap_wpk_count, 
          starts_with("bus_cap_wpk_am"), bus_cap_opk_num, bus_cap_opk_count, 
@@ -37,11 +37,12 @@ check_data %>%
   mutate(CNIC_val_error = (nchar(cnic)!=13), #I also want those for which CNIC is blank or -99
          #phone_val_error = !(nchar(contact_num)==10 | contact_num==99999999999 | contact_num=="" | is.na(contact_num)),
          uid_val_error = (nchar(uid)>5 | (uid<=0 & uid!=-9999) | is.na(as.numeric(uid)) | uid=="" ) #flags blanks. Doesn't flag -9999
-  )%>%
+  ) %>%
   filter_at(
     vars(ends_with("val_error")),
     any_vars(.)
-  )%>%
-  write.csv(file = "data/flagged_entries.csv", row.names = FALSE)
+  )
+
+write.csv(errs, file = "data/flagged_entries.csv", row.names = FALSE)
 
   

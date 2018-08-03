@@ -5,7 +5,8 @@
 #reading in the latest csv
 library(tidyverse)
 
-check_data <- read_csv("data/Asset Form_WIDE_v1.1.csv")
+check_data <- read_csv("data/Asset Form_WIDE_v1.2.csv")
+scrutiny_list <- read_csv("data/candidate_scrutiny_list.csv")
 
 #list of things to check:
 # 1. CNIC length (cnic): should have length 13 digits
@@ -36,13 +37,28 @@ errs <- check_data %>%
   ) %>%
   mutate(CNIC_val_error = (nchar(cnic)!=13), #I also want those for which CNIC is blank or -99
          #phone_val_error = !(nchar(contact_num)==10 | contact_num==99999999999 | contact_num=="" | is.na(contact_num)),
-         uid_val_error = (nchar(uid)>5 | (uid<=0 & uid!=-9999) | is.na(as.numeric(uid)) | uid=="" ) #flags blanks. Doesn't flag -9999
-  ) %>%
+         uid_val_error = (nchar(uid)>5 | (uid<=0 & uid!=-9999) | is.na(as.numeric(uid)) | uid=="" ), #flags blanks. Doesn't flag -9999
+         cnic_missing = as.numeric(cnic) %in% scrutiny_list$candidate_CNIC_ECP
+         ) %>%
   filter_at(
     vars(ends_with("val_error")),
     any_vars(.)
   )
 
+errs%>%
+  filter(cnic_missing)%>%
+  select(type_seat, const_number, uid, cnic, cnic_missing)
+
+str(check_data$cnic)
+str(as.character(scrutiny_list$candidate_CNIC_ECP))
+
+
+check_data$
+
 write.csv(errs, file = "data/flagged_entries.csv", row.names = FALSE)
 
-  
+
+cnic_errs <- check_data%>%
+  mutate(cnic_missing = as.numeric(cnic) %in% scrutiny_list$candidate_CNIC_ECP)
+
+

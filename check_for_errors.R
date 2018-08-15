@@ -72,5 +72,3 @@ missing_cnics_categorized <- read_excel("data/missing_cnics_categorized.xlsx")%>
  
  table(missing_cnics_categorized$error_type, useNA = "always")
  
-
-

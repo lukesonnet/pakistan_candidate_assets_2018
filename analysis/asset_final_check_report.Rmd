@@ -1,0 +1,40 @@
+---
+title: "Asset Check Report Final"
+author: "Ibrahim Khan"
+date: "8/25/2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(estimatr)
+library(haven)
+library(readxl)
+#loading final data
+
+final_assets <- read_dta("data/Asset Form Data_Luke.dta")
+
+final_cand_uids <- read_excel("data/candidate_uids_complete.xls")
+
+names(final_assets)
+str(final_assets)
+  
+
+```
+
+## R Markdown
+
+
+```{r }
+summary(cars)
+```
+
+## Including Plots
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+

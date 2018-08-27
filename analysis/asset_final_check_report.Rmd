@@ -55,9 +55,9 @@ errs <- final_assets %>%
 missing_cnics_raw <- errs%>%
   filter(cnic_missing)%>%
   mutate(seat_id = paste0(type_seat, "-", const_number)) %>%
-  select(seat_id, candidate_name, uid, cnic, cnic_missing)
+  select(type_seat,const_number,candidate_name, enum_name, uid, cnic, cnic_missing, cnic, CNIC_val_error)
 
-#write.csv(missing_cnics_raw, file = "data/missing_cnics.csv", row.names = FALSE)
+write.csv(missing_cnics_raw, file = "data/missing_cnics.csv", row.names = FALSE)
 
 #missing_cnics_categorized <- read_excel("data/missing_cnics_categorized.xlsx")%>%
 #  mutate(cnic=as.character(cnic), correct_cnic=as.character(correct_cnic), uid=as.character(uid))
@@ -225,3 +225,60 @@ final_assets%>%
   + Movable Property Value Total (includes cash, automobile, jewellery)
 * To evaluate land at current prices, it might be useful to look at Land Revenue Annual _Mossat_ _Bay_ (reports land price value at mouza level)
 * For jewellery, I am unsure since the weight of jewellery does not capture type (silver, gold) whose prices may differ.  
+
+
+#### Duplicated Rows?
+
+Accidentally stumbled across this while playing with the dta file in stata but there appear to be duplicate rows. Given their should be one entry per candidate, even if the candidate is contesting in multiple constituencies, we expect the data to be uniquely identified by the main identifying variables: type_seat, const_number, uid, candidate_name
+
+I found that not only are there duplicate entries across these main identifiers, but also are multiple duplicates if add the cnic to the above list, although fewer
+
+Implication: There are multiple entries per candidates, but since they aren't entirely identical, i.e. similar rows have different entered data, as exemplified by the duplicates reports, we cannot do away with this by simply dropping duplicates as we do not yet know which row has the correct data. 
+
+To illustrate this, we check as shown below and receive the following results:
+
+* Completely identical rows:
+```{r echo=FALSE}
+
+d <- duplicated(final_assets)
+table(d)
+
+```
+This shows that are **no rows** that are completely identical, i.e. each row is unique when checked across all variables.
+
+* Rows duplicated with candidate identfiers:
+```{r echo=FALSE}
+d <-duplicated(final_assets[c("type_seat", "const_number", "uid", "candidate_name")])
+table(d)
+
+```
+
+~~From-- Stata(FS): (while I figure out how to get this to work on R):~~
+I have figured out.
+There are 212 duplicated rows (since 16 have 3 duplicates). 
+
+
+* Rows duplicated with candidate identfiers + enum_name:
+```{r echo=FALSE}
+d <-duplicated(final_assets[c("enum_name", "type_seat", "const_number", "uid", "candidate_name")])
+table(d)
+
+```
+
+If we add the enumerator name here, we get 128 duplicated rows. This implies, when compared to the above part, that the same asset form was entered by different enumerators differently (else we would expect there to be no variation across these first two numbers).
+
+*  Rows duplicated with candidate identfiers + cnic:
+```{r echo=FALSE}
+d <-duplicated(final_assets[,c("type_seat", "const_number", "uid", "candidate_name", "cnic")])
+table(d)
+
+```
+FS: We have 79 rows that have been duplicated, the number going down relative to the first case implies that different entries have different cnics from which we have no way of finding out which one is correct.
+
+
+At the suggestion of Ahsan, even adding father's name to the above list of identifiers will not help, as there will still remain 32 duplicated rows.
+```{r echo=FALSE}
+d <-duplicated(final_assets[,c("type_seat", "const_number", "uid", "candidate_name", "father_name","cnic")])
+table(d)
+
+```

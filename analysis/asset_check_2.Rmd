@@ -1,0 +1,341 @@
+---
+title: "Asset Check New"
+author: "Ibrahim Khan"
+date: "8/29/2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+First things first, relative to the previous data which had 17398, we now have a total of 17265 observations.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(estimatr)
+library(haven)
+library(readxl)
+#loading final data
+
+#setwd("C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets")
+
+final_assets <- read_dta("C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets/data/Luke_08282018_Asset.dta")%>%
+  mutate_at(vars(uid,cnic), funs(as.character))
+#write.csv(final_assets, "data/Asset Form Data_Luke.csv")
+
+#check_data <- read_csv("data/Asset Form Data_Luke.csv", na = c("", "-"))
+scrutiny_list <- read_csv("C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets/data/candidate_scrutiny_list.csv")%>%
+  mutate(cnic=as.character(candidate_CNIC_ECP))
+final_cand_uids <- read_excel("C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets/data/candidate_uids_complete.xls")
+
+
+#1: Check for entry errors as we previously did
+errs <- final_assets %>%
+  mutate_at( #check for numeric entries are all numeric
+    vars(starts_with("im_prop_pak"),bus_cap_wpk_num, bus_cap_wpk_count, 
+         starts_with("bus_cap_wpk_am"), bus_cap_opk_num, bus_cap_opk_count, 
+         starts_with("bus_cap_opk_am"), bank_drafts:motor_cost, motor_g_count:liabilities,
+         dependents, num_criminal, crimes_count, ntn,year_income:income_total, starts_with("income_total"),
+         starts_with("tax_paid"), intern_trips_cost:passport_for, current_fy_net_assets:contact_num,
+         -year_income, -year_agri_income, -passport_for, -elected_before, -ntn, -starts_with("im_prop_pak_t_"),-starts_with("im_prop_pak_a_"),-starts_with("unit_agri"), -cons_type
+         ),
+    funs(num_val_error = . != "" & !is.na(.) & is.na(as.numeric(.)) )
+  ) %>%
+  mutate(CNIC_val_error = (nchar(cnic)!=13), #I also want those for which CNIC is blank or -99
+         #phone_val_error = !(nchar(contact_num)==10 | contact_num==99999999999 | contact_num=="" | is.na(contact_num)),
+         uid_val_error = (nchar(uid)>5 | (uid<=0 & uid!=-9999) | is.na(as.numeric(uid)) | uid=="" ), #flags blanks. Doesn't flag -9999
+         cnic_missing = !(cnic %in% scrutiny_list$cnic) & cnic!=9999999999999
+         ) %>%
+  filter_at(
+    vars(ends_with("val_error")),
+    any_vars(.)
+  )
+write.csv(errs, file = "C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets/data/flagged_entries_final.csv", row.names = FALSE)
+
+# # CHECKING FOR ERRORS IN CNIC ENTRIES
+# 
+# missing_cnics_raw <- errs%>%
+#   filter(cnic_missing)%>%
+#   mutate(seat_id = paste0(type_seat, "-", const_number),
+#          cnic_length=nchar(cnic)) %>%
+#   select(seat_id, type_seat,const_number,candidate_name, enum_name, uid, cnic, cnic_length, cnic_missing, CNIC_val_error)
+# 
+# write.csv(missing_cnics_raw, file = "C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets/data/missing_cnics.csv", row.names = FALSE)
+
+#missing_cnics_categorized <- read_excel("data/missing_cnics_categorized.xlsx")%>%
+#  mutate(cnic=as.character(cnic), correct_cnic=as.character(correct_cnic), uid=as.character(uid))
+
+```
+
+#### 1. CNICs
+The latest dataset gives us 780 cnic flags:
+* Length error: The length of the entered cnic != 13 (and the cnic!= 0 or 888888888888 (length 12) )
+* Missing value - 0: Missing value entered as 0
+* Missing value - 9: Missing value correctly entered as 9999999999999
+* Missing value - 8: Missing value correctly entered as 888888888888 (length 12)
+* value Available: Value is not missing and does not have a length error - correctly entered
+
+As shown in the table below, we have 16485 values that appear to be correctly entered
+```{r, echo=FALSE}
+
+cnic_flags <- final_assets%>%
+  mutate(cnic_length=nchar(cnic),
+         cnic_empty_incorrect=cnic==9999999999999 | cnic==0 | cnic==888888888888 | nchar(cnic)!=13,
+         cnic_empty_category=case_when(
+           (cnic==9999999999999) ~ "Missing value - 9",
+           (cnic==0) ~ "Missing value - 0",
+           (cnic==888888888888) ~ "Missing value -8",
+           (nchar(cnic)!=13 & cnic!=0 & cnic!=888888888888) ~ "Length error - 10 or 12",
+           (!cnic_empty_incorrect) ~ "Value available"
+         ),
+         cnic_in_scrutiny= (cnic %in% scrutiny_list$cnic)
+         )%>%
+  select(type_seat,const_number,candidate_name, enum_name, uid, cnic, cnic_length, cnic_empty_incorrect, cnic_empty_category, cnic_in_scrutiny)
+
+table(cnic_flags$cnic_empty_incorrect)
+table(cnic_flags$cnic_empty_category)
+
+```
+
+One additional check we can do is to match the list of cnics we have with the original scrutiny list:
+
+``` {r }
+table(cnic_flags$cnic_empty_category, cnic_flags$cnic_in_scrutiny)
+```
+We see that of the 16485 correctly entered CNICs, 3287 are not in the scrutiny list. This could be due to 2 reasons:
+
+  1. The CNIC was incorrectly read and entered from the form
+  2. The candidate details are not in the scrutiny list
+
+What might be helpful would be to have AT backcheck a percentage of these to ascertain which case it may be, as 1 is more concerning than 2. 
+
+With the current data, we have 13198 confirmed correctly entered CNICs ~76 percent of our total observations.
+
+
+#### 2. Missing UIDs
+
+Of the total 17265 observations, we now have uids for 8745 candidates. The UID is missing (-9999) for 8517 candidates.And 3 are not matched (likely due to errors which we'll check). 
+
+```{r, echo=FALSE}
+
+final_assets%>%
+  mutate(
+    uid_missing=case_when(
+    (!(as.numeric(uid) %in% as.numeric(final_cand_uids$uid)) & uid!=-9999) ~ "Not Matched",
+    (as.numeric(uid) %in% as.numeric(final_cand_uids$uid) & uid!=-9999) ~ "Matched",
+    uid==-9999 ~ "Missing")
+  )%>%
+  {table(.$uid_missing)}
+
+final_assets%>%
+  mutate(
+    uid_missing=case_when(
+    (!(as.numeric(uid) %in% as.numeric(final_cand_uids$uid)) & uid!=-9999) ~ "Not Matched",
+    (as.numeric(uid) %in% as.numeric(final_cand_uids$uid) & uid!=-9999) ~ "Matched",
+    uid==-9999 ~ "Missing")
+  )%>%
+  filter(uid_missing=="Not Matched")%>%
+  select(type_seat,const_number,candidate_name, enum_name,cnic, uid, uid_missing)
+
+#the reason I do as.numeric here is that the importing from dta loses the leading zeros in uid whereas it doesn't for the candidate final list. To ensure they are correctly matched, I convert both to a number. This shouldn't cause any problems in matching otherwise.
+           
+```
+The unmatched uids are probably due to some error since they're outside the range of the uids we have. I am going to try and see if there was in error in typing the __first__ number to catch the correct version in candidate list possibly. 
+
+```{r}
+final_cand_uids%>%
+  filter(as.numeric(uid) %in% c(18773, 8773, 18390, 8390, 11035, 1035))
+```
+Right then, found an error, Malik Zabeeh Ullah correct uid: 08773. Couldn't catch the other two errors hmm. 
+
+
+#### 3. Assets (Immovable)
+
+While there is an added variable that is supposedly the sum of all im_prop value variables, it seems they haven't controlled for when one of the values in the sum is NA. So just to check how many total immovable property value sums we actually have in our dataset:
+```{r echo=FALSE}
+#to see h
+#step 1: replace all -99 and NA with 0 in imp_prop_pak_p* (1-23)
+
+final_assets%>%
+  mutate_at(vars(starts_with("im_prop_pak_p_")), funs(recode(., `-99`=0,`-96`=0,`-9`=0)))%>% #there were 5 for which entries were incorrect
+  mutate_at(vars(starts_with("im_prop_pak_p_")), funs(replace(., is.na(.),0)))%>%
+  mutate(im_prop_value_total=im_prop_pak_p_1+
+           im_prop_pak_p_2+
+           im_prop_pak_p_3+
+           im_prop_pak_p_4+
+           im_prop_pak_p_5+
+           im_prop_pak_p_6+
+           im_prop_pak_p_7+
+           im_prop_pak_p_8+
+           im_prop_pak_p_9+
+           im_prop_pak_p_10+
+           im_prop_pak_p_11+
+           im_prop_pak_p_12+
+           im_prop_pak_p_13+
+           im_prop_pak_p_14+
+           im_prop_pak_p_15+
+           im_prop_pak_p_16+
+           im_prop_pak_p_17+
+           im_prop_pak_p_18+
+           im_prop_pak_p_19+
+           im_prop_pak_p_20+
+           im_prop_pak_p_21+
+           im_prop_pak_p_22+
+           im_prop_pak_p_23,
+         im_prop_missing=(im_prop_value_total<=0)
+         )%>%
+  # select(starts_with("im_prop_pak_p_"), im_prop_value_total, im_prop_missing)%>%
+  # filter(im_prop_value_total==0)%>%
+  # select(im_prop_pak_p_1:im_prop_pak_p_5, im_prop_value_total, im_prop_missing)
+  mutate_at(vars(starts_with("im_prop_pako_p_")), funs(recode(., `-99`=0,`-96`=0,`-9`=0)))%>% #there were 5 for which entries were incorrect
+  mutate_at(vars(starts_with("im_prop_pako_p_")), funs(replace(., is.na(.),0)))%>%
+  mutate(im_prop_opk_value_total=im_prop_pako_p_1+
+           im_prop_pako_p_2+
+           im_prop_pako_p_3+
+           im_prop_pako_p_4+
+           im_prop_pako_p_5+
+           im_prop_pako_p_6+
+           im_prop_pako_p_7,
+         im_prop_opk_missing=(im_prop_opk_value_total<=0)
+         )%>%
+  # select(starts_with("im_prop_pak_p_"), im_prop_value_total, im_prop_missing)%>%
+  # filter(im_prop_value_total==0)%>%
+  # select(im_prop_pak_p_1:im_prop_pak_p_5, im_prop_value_total, im_prop_missing)
+  {table( .$im_prop_missing, .$im_prop_opk_missing)}
+```
+
+It appears there are 6762 candidates who have declared no immovable assets in Pakistan. Similarly, only 193 candidates have declared immovable asset ownership outside Pakistan. 
+
+There are 6729 candidates in total who have declared zero immovable assets (both outside and inside Pakistan).
+
+#### 4. Jewellery, Cash and others
+
+In addition to immovable asset values and details, other measures of wealth we have are:
+1. Business Capital Ownership within and outside Pakistan
+2. Investments in varying forms (stocks, loans, mortages)
+3. Total value of owned motor cars (the motor car number and count ALL NA majorly)
+```{r echo=FALSE}
+table(final_assets$motor_g_count, useNA="always")
+```
+4. Jewellery: 8309 candidates have reported the value of jewellery owned, and of those for which value is not available, we have the weights of 7610 as shown in the table below.
+```{r echo=FALSE}
+
+final_assets%>%
+  mutate(jewel_val_av=case_when(
+    (jewel_cost>0) ~ "Value Available",
+    (jewel_cost==0) ~ "Zero",
+    (jewel_cost==-99| jewel_cost=="") ~ "Value Not Available"
+  ))%>%
+   mutate(jewel_tola_av=case_when(
+    (jewel_tolas>0) ~ "Weight Available",
+    (jewel_tolas==0) ~ "Zero",
+    (jewel_tolas==-99 | jewel_tolas=="") ~ "Weight Not Available"
+  ))%>%
+  {table(.$jewel_val_av, .$jewel_tola_av, useNA = "always")}
+```
+5. Cash in hand and at bank are estimates of the total funds in cash available to any candidate. This may be important both in that we expect this to be the main pool from which expenditure for the campaign may take place, given it is not easy to sale off immovable property to fund an election at short notice (assuming the records are up to date till submission of nomination forms). We have total cash details available for 12141 candidates, which is a good sign.
+```{r echo=FALSE}
+
+final_assets%>%
+  mutate_at(vars(cash_cost, cash_bank_cost), funs(recode(., `-99`=0)))%>%
+  mutate(total_cash=cash_cost+cash_bank_cost)%>%
+  # filter_at(.,vars(cash_cost, cash_bank_cost),any_vars(.<0))%>%
+  # select(cash_cost,cash_bank_cost  )
+  mutate(total_cash_available=total_cash>0)%>%
+{table(.$total_cash_available)}
+
+
+```
+6. Agricultural and total income as declared in affidavits.
+7. Size of Agricultural land holdings. This is varying since some have reported in Acres, others in Kanals. We have such details for 1293 candidates
+```{r echo=FALSE}
+final_assets%>%
+  mutate(agriland_holding_details=(agri_land_holding>0|agri_land_holding1>0|agri_land_holding2>0))%>%
+  {table(.$agriland_holding_details, useNA = "always")}
+
+```
+8. Current fy and past fy net assets: we have reported values for both of these for 10987 candidates
+```{r echo=FALSE}
+final_assets%>%
+  mutate(fy_assets_av=current_fy_net_assets>0 | past_fy_net_assets>0)%>%
+  {table(.$fy_assets_av)}
+
+```
+##### Steps to consider going forward
+* CNICs: What to do about unmatched cnics (ones not in scrutiny)
+* Occupation and Education variables need to be cleaned and categorized
+* It would be useful to group asset types in a few broad categories such as: 
+  + Immovable Property Value Total 
+  + Agricultural Land Ownership Value
+  + Agricultural Income
+  + Movable Property Value Total (includes cash, automobile, jewellery)
+* To evaluate land at current prices, it might be useful to look at Land Revenue Annual _Mossat_ _Bay_ (reports land price value at mouza level)
+* For jewellery, I am unsure since the weight of jewellery does not capture type (silver, gold) whose prices may differ.  
+
+
+#### 5. Duplicated Rows?
+
+Evaluating the data 
+
+* Completely identical rows:
+```{r echo=FALSE}
+
+d <- duplicated(final_assets)
+table(d)
+
+```
+This shows that are **no rows** that are completely identical, i.e. each row is unique when checked across all variables.
+
+* Rows duplicated with candidate identfiers:
+```{r echo=FALSE}
+d <-duplicated(final_assets[c("type_seat", "const_number", "uid", "candidate_name")])
+table(d)
+
+```
+
+There are now only 76 duplicated rows with the main identifiers, a major improvement from the earlier ~408 duplicates. There are still duplicates but now we have a unique key identifier `key`.
+
+* Rows duplicated with candidate identfiers + enum_name:
+```{r echo=FALSE}
+d <-duplicated(final_assets[c("enum_name", "type_seat", "const_number", "uid", "candidate_name")])
+table(d)
+
+```
+
+*  Rows duplicated with candidate identfiers + cnic:
+```{r echo=FALSE}
+d <-duplicated(final_assets[,c("type_seat", "const_number", "uid", "candidate_name", "cnic")])
+table(d)
+
+```
+If we add cnic we only get 5 duplicates. Much much better. And if we add father's name:
+
+```{r echo=FALSE}
+d <-duplicated(final_assets[,c("type_seat", "const_number", "uid", "candidate_name", "father_name","cnic")])
+table(d)
+
+```
+
+Just one duplicated row. Which is great. 
+
+The data is completely identified by:
+
+1. "key"
+2. c("enum_name", "type_seat", "const_number", "uid", "candidate_name", "father_name", "cnic") 
+
+
+#### 6. Checking for other errors
+
+```{r }
+
+errs%>%
+  filter(!CNIC_val_error & !cnic_missing)%>%
+  select(type_seat, const_number, candidate_name, cnic, contact_num, contact_num_num_val_error)
+```
+
+The only other error that is flagged is for two entries' contact number errors. This however, isn't an issue because they've written their residential phone numbers with a "-" in between. 
+
+
+#### 7. Is there anything we need to look at now?
+
+In my opinion, just the missing cnics. If we do face problems ahead it'll be with merging with the candidate lists and election results, but I cannot exactly predict how big of a problem that will be. In any case, we can expect to match 13000+ candidates cleanly. 

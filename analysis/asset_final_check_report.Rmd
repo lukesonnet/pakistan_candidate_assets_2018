@@ -15,8 +15,6 @@ library(haven)
 library(readxl)
 #loading final data
 
-setwd("C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets")
-
 final_assets <- read_dta("data/Asset Form Data_Luke.dta")%>%
   mutate_at(vars(uid,cnic), funs(as.character))
 #write.csv(final_assets, "data/Asset Form Data_Luke.csv")

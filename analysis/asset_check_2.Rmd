@@ -10,7 +10,7 @@ editor_options:
 First things first, relative to the previous data which had 17398, we now have a total of 17265 observations.
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+knitr::opts_chunk$set(echo = FALSE, comment = "#>")
 library(tidyverse)
 library(estimatr)
 library(haven)
@@ -19,14 +19,14 @@ library(readxl)
 
 #setwd("C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets")
 
-final_assets <- read_dta("C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets/data/Luke_08282018_Asset.dta")%>%
+final_assets <- read_dta("data/Luke_08282018_Asset.dta")%>%
   mutate_at(vars(uid,cnic), funs(as.character))
 #write.csv(final_assets, "data/Asset Form Data_Luke.csv")
 
 #check_data <- read_csv("data/Asset Form Data_Luke.csv", na = c("", "-"))
-scrutiny_list <- read_csv("C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets/data/candidate_scrutiny_list.csv")%>%
+scrutiny_list <- read_csv("data/candidate_scrutiny_list.csv")%>%
   mutate(cnic=as.character(candidate_CNIC_ECP))
-final_cand_uids <- read_excel("C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets/data/candidate_uids_complete.xls")
+final_cand_uids <- read_excel("data/candidate_uids_complete.xls")
 
 
 #1: Check for entry errors as we previously did
@@ -50,7 +50,7 @@ errs <- final_assets %>%
     vars(ends_with("val_error")),
     any_vars(.)
   )
-write.csv(errs, file = "C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets/data/flagged_entries_final.csv", row.names = FALSE)
+write.csv(errs, file = "data/flagged_entries_final.csv", row.names = FALSE)
 
 # # CHECKING FOR ERRORS IN CNIC ENTRIES
 # 
@@ -60,7 +60,7 @@ write.csv(errs, file = "C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets/data/flagg
 #          cnic_length=nchar(cnic)) %>%
 #   select(seat_id, type_seat,const_number,candidate_name, enum_name, uid, cnic, cnic_length, cnic_missing, CNIC_val_error)
 # 
-# write.csv(missing_cnics_raw, file = "C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets/data/missing_cnics.csv", row.names = FALSE)
+# write.csv(missing_cnics_raw, file = "data/missing_cnics.csv", row.names = FALSE)
 
 #missing_cnics_categorized <- read_excel("data/missing_cnics_categorized.xlsx")%>%
 #  mutate(cnic=as.character(cnic), correct_cnic=as.character(correct_cnic), uid=as.character(uid))
@@ -69,6 +69,7 @@ write.csv(errs, file = "C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets/data/flagg
 
 #### 1. CNICs
 The latest dataset gives us 780 cnic flags:
+
 * Length error: The length of the entered cnic != 13 (and the cnic!= 0 or 888888888888 (length 12) )
 * Missing value - 0: Missing value entered as 0
 * Missing value - 9: Missing value correctly entered as 9999999999999

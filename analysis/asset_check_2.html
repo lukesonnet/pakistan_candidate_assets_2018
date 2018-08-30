@@ -128,6 +128,8 @@ $(document).ready(function () {
 </div>
 
 
+<p>TODO CNIC and UID backchecks we discuseed with AT - back check on ~50 CNICs that don’t match - back check on ~20 missing CNICs</p>
+<p>TODO for UIDs, start with final cand uid list and see how many are missing the asset data</p>
 <p>First things first, relative to the previous data which had 17398, we now have a total of 17265 observations.</p>
 <div id="cnics" class="section level4">
 <h4>1. CNICs</h4>
@@ -149,6 +151,7 @@ $(document).ready(function () {
 #&gt;        Missing value -8         Value available 
 #&gt;                       1                   16485</code></pre>
 <p>One additional check we can do is to match the list of cnics we have with the original scrutiny list:</p>
+<pre class="r"><code>table(cnic_flags$cnic_empty_category, cnic_flags$cnic_in_scrutiny)</code></pre>
 <pre><code>#&gt;                          
 #&gt;                           FALSE  TRUE
 #&gt;   Length error - 10 or 12    12     0
@@ -167,6 +170,54 @@ $(document).ready(function () {
 <div id="missing-uids" class="section level4">
 <h4>2. Missing UIDs</h4>
 <p>Of the total 17265 observations, we now have uids for 8745 candidates. The UID is missing (-9999) for 8517 candidates.And 3 are not matched (likely due to errors which we’ll check).</p>
+<pre><code>#&gt; # A tibble: 20 x 6
+#&gt;    enum_name enum_other type_seat const_number candidate_name        uid  
+#&gt;    &lt;dbl+lbl&gt; &lt;chr&gt;      &lt;chr&gt;     &lt;dbl+lbl&gt;    &lt;chr&gt;                 &lt;chr&gt;
+#&gt;  1 118       &quot;&quot;         NA        1            Abdul Qayum           -9999
+#&gt;  2 118       &quot;&quot;         NA        1            Hidyat Ul Rehman      -9999
+#&gt;  3 118       &quot;&quot;         NA        1            Hizbullah             -9999
+#&gt;  4 118       &quot;&quot;         NA        1            Perveez Musaraf       -9999
+#&gt;  5 118       &quot;&quot;         NA        1            Shah Abdul Mansoor    -9999
+#&gt;  6 118       &quot;&quot;         NA        1            Sultan Wazeer         -9999
+#&gt;  7 118       &quot;&quot;         NA        1            Wajih U Deen          -9999
+#&gt;  8 118       &quot;&quot;         NA        1            Abdul Latif           00001
+#&gt;  9 118       &quot;&quot;         NA        1            Eid Ul Hussain        00002
+#&gt; 10 118       &quot;&quot;         NA        1            Ifthkhar U Deen       00003
+#&gt; 11 118       &quot;&quot;         NA        1            Molana Abdul Chitrali 00004
+#&gt; 12 118       &quot;&quot;         NA        1            Muhammad Amjad        00005
+#&gt; 13 118       &quot;&quot;         NA        1            Muhammad Yahya Khan   00006
+#&gt; 14 118       &quot;&quot;         NA        1            Nisar Dastgeer        00007
+#&gt; 15 118       &quot;&quot;         NA        1            Shyed Ul Rehman       00008
+#&gt; 16 118       &quot;&quot;         NA        1            Saleem Khan           00009
+#&gt; 17 118       &quot;&quot;         NA        1            Shezada Muhamad Taim… 00010
+#&gt; 18 118       &quot;&quot;         NA        1            Taqdira Ajmal         00011
+#&gt; 19 118       &quot;&quot;         NA        2            Altaf Ullah           -9999
+#&gt; 20 118       &quot;&quot;         NA        2            Bakht Zada            -9999</code></pre>
+<pre><code>#&gt; # A tibble: 20 x 3
+#&gt;    pa_id candidate_name                   uid  
+#&gt;    &lt;chr&gt; &lt;chr&gt;                            &lt;chr&gt;
+#&gt;  1 NA-1  Abdul Latif                      00001
+#&gt;  2 NA-1  Eid Ul Hussain                   00002
+#&gt;  3 NA-1  Iftikhar Ud Din                  00003
+#&gt;  4 NA-1  Moulana Abdul Akbar Chitrali     00004
+#&gt;  5 NA-1  Muhammad Amjad                   00005
+#&gt;  6 NA-1  Muhammad Yahya                   00006
+#&gt;  7 NA-1  Nisar Dastageer                  00007
+#&gt;  8 NA-1  Saeed ur Rehman                  00008
+#&gt;  9 NA-1  Saleem Khan                      00009
+#&gt; 10 NA-1  Shahzada Muhammad Taimur Khisrao 00010
+#&gt; 11 NA-1  Taqdira Ajmal                    00011
+#&gt; 12 NA-10 Amir Sultan                      00012
+#&gt; 13 NA-10 Bakht Nasib Khan                 00013
+#&gt; 14 NA-10 Hamid Iqbal Khan                 00014
+#&gt; 15 NA-10 Ibadullah Khan                   00015
+#&gt; 16 NA-10 Praviz Ahmad                     00016
+#&gt; 17 NA-10 Sadeed ur Rahman                 00017
+#&gt; 18 NA-10 Safeer Khan                      00018
+#&gt; 19 NA-10 Said Fareen                      00019
+#&gt; 20 NA-10 Waqar Ahmad Khan                 00020</code></pre>
+<pre><code>#&gt; [1] 17265</code></pre>
+<pre><code>#&gt; [1] 11660</code></pre>
 <pre><code>#&gt; 
 #&gt;     Matched     Missing Not Matched 
 #&gt;        8745        8517           3</code></pre>
@@ -177,6 +228,8 @@ $(document).ready(function () {
 #&gt; 2 PP        290          Atifali Daresh… 105       3210… 28390 Not Matched
 #&gt; 3 PS        24           Muneeb Ahmad    146       4550… 21035 Not Matched</code></pre>
 <p>The unmatched uids are probably due to some error since they’re outside the range of the uids we have. I am going to try and see if there was in error in typing the <strong>first</strong> number to catch the correct version in candidate list possibly.</p>
+<pre class="r"><code>final_cand_uids%&gt;%
+  filter(as.numeric(uid) %in% c(18773, 8773, 18390, 8390, 11035, 1035))</code></pre>
 <pre><code>#&gt; # A tibble: 4 x 3
 #&gt;   pa_id  candidate_name   uid  
 #&gt;   &lt;chr&gt;  &lt;chr&gt;            &lt;chr&gt;
@@ -189,21 +242,38 @@ $(document).ready(function () {
 <div id="assets-immovable" class="section level4">
 <h4>3. Assets (Immovable)</h4>
 <p>While there is an added variable that is supposedly the sum of all im_prop value variables, it seems they haven’t controlled for when one of the values in the sum is NA. So just to check how many total immovable property value sums we actually have in our dataset:</p>
-<pre><code>#&gt;        
-#&gt;         FALSE  TRUE
-#&gt;   FALSE   160 10343
-#&gt;   TRUE     33  6729</code></pre>
+<pre><code>#&gt;                im_prop_opk_missing
+#&gt; im_prop_missing FALSE  TRUE
+#&gt;           FALSE   160 10343
+#&gt;           TRUE     33  6729</code></pre>
 <p>It appears there are 6762 candidates who have declared no immovable assets in Pakistan. Similarly, only 193 candidates have declared immovable asset ownership outside Pakistan.</p>
 <p>There are 6729 candidates in total who have declared zero immovable assets (both outside and inside Pakistan).</p>
 </div>
 <div id="jewellery-cash-and-others" class="section level4">
 <h4>4. Jewellery, Cash and others</h4>
-<p>In addition to immovable asset values and details, other measures of wealth we have are: 1. Business Capital Ownership within and outside Pakistan 2. Investments in varying forms (stocks, loans, mortages) 3. Total value of owned motor cars (the motor car number and count ALL NA majorly)</p>
+<p>In addition to immovable asset values and details, other measures of wealth we have are: 1. Business Capital Ownership within and outside Pakistan 2. Investments in varying forms (stocks, loans, mortages) 3. Total value of owned motor cars (the motor car number and count ALL NA majorly) TODO Check how many are -99 for car cost and how many are 0, check if either means that there were cars reported but no value. involves checking some forms/asking AT</p>
+<pre><code>#&gt; # A tibble: 17,265 x 3
+#&gt;    motor_cost motor_number motor_g_count
+#&gt;         &lt;dbl&gt;        &lt;dbl&gt;         &lt;dbl&gt;
+#&gt;  1        -99           NA            NA
+#&gt;  2    1000000           NA            NA
+#&gt;  3    1200000           NA            NA
+#&gt;  4          0           NA            NA
+#&gt;  5          0           NA            NA
+#&gt;  6     430000           NA            NA
+#&gt;  7          0           NA            NA
+#&gt;  8     600000           NA            NA
+#&gt;  9    2300000           NA            NA
+#&gt; 10    2000000           NA            NA
+#&gt; # ... with 17,255 more rows</code></pre>
+<pre><code>#&gt; 
+#&gt;  &lt;NA&gt; 
+#&gt; 17265</code></pre>
 <pre><code>#&gt; 
 #&gt;  &lt;NA&gt; 
 #&gt; 17265</code></pre>
 <ol start="4" style="list-style-type: decimal">
-<li>Jewellery: 8309 candidates have reported the value of jewellery owned, and of those for which value is not available, we have the weights of 7610 as shown in the table below.</li>
+<li>Jewellery: 8309 candidates have reported the value of jewellery owned, and of those for which value is not available, we have the weights of 7610 as shown in the table below. TODO get distribution of valuations of jewelry that people are using: rupees / weight for those that reported both, and then create imputed jewel_val for those with missing jewelry using the mean of this valuation</li>
 </ol>
 <pre><code>#&gt;                      
 #&gt;                       Weight Available Weight Not Available Zero &lt;NA&gt;
@@ -225,11 +295,15 @@ $(document).ready(function () {
 #&gt; FALSE  TRUE  &lt;NA&gt; 
 #&gt;   188  1293 15784</code></pre>
 <ol start="8" style="list-style-type: decimal">
-<li>Current fy and past fy net assets: we have reported values for both of these for 10987 candidates</li>
+<li>Current fy and past fy net assets: we have reported values for both of these for 10987 candidates TODO chnage to case_when for &gt;0, ==0, and ==-99</li>
 </ol>
 <pre><code>#&gt; 
 #&gt; FALSE  TRUE 
 #&gt;  6278 10987</code></pre>
+</div>
+<div id="affidavit-data" class="section level3">
+<h3>Affidavit data</h3>
+<p>TODO start cleaning and categorizing education, occupation, and amounts paid to parties and amounts received from parties</p>
 <div id="steps-to-consider-going-forward" class="section level5">
 <h5>Steps to consider going forward</h5>
 <ul>
@@ -243,7 +317,6 @@ $(document).ready(function () {
 <li>To evaluate land at current prices, it might be useful to look at Land Revenue Annual <em>Mossat</em> <em>Bay</em> (reports land price value at mouza level)</li>
 <li>For jewellery, I am unsure since the weight of jewellery does not capture type (silver, gold) whose prices may differ.</li>
 </ul>
-</div>
 </div>
 <div id="duplicated-rows" class="section level4">
 <h4>5. Duplicated Rows?</h4>
@@ -287,6 +360,9 @@ $(document).ready(function () {
 </div>
 <div id="checking-for-other-errors" class="section level4">
 <h4>6. Checking for other errors</h4>
+<pre class="r"><code>errs%&gt;%
+  filter(!CNIC_val_error &amp; !cnic_missing)%&gt;%
+  select(type_seat, const_number, candidate_name, cnic, contact_num, contact_num_num_val_error)</code></pre>
 <pre><code>#&gt; # A tibble: 2 x 6
 #&gt;   type_seat const_number candidate_name cnic  contact_num contact_num_num…
 #&gt;   &lt;chr&gt;     &lt;dbl+lbl&gt;    &lt;chr&gt;          &lt;chr&gt; &lt;chr&gt;       &lt;lgl&gt;           
@@ -297,6 +373,7 @@ $(document).ready(function () {
 <div id="is-there-anything-we-need-to-look-at-now" class="section level4">
 <h4>7. Is there anything we need to look at now?</h4>
 <p>In my opinion, just the missing cnics. If we do face problems ahead it’ll be with merging with the candidate lists and election results, but I cannot exactly predict how big of a problem that will be. In any case, we can expect to match 13000+ candidates cleanly.</p>
+</div>
 </div>
 
 

@@ -7,17 +7,21 @@ editor_options:
   chunk_output_type: console
 ---
 
+TODO CNIC and UID backchecks we discuseed with AT
+- back check on ~50 CNICs that don't match
+- back check on ~20 missing CNICs
+
+TODO for UIDs, start with final cand uid list and see how many are missing the asset data
+
 First things first, relative to the previous data which had 17398, we now have a total of 17265 observations.
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, comment = "#>")
+knitr::opts_chunk$set(echo = TRUE, comment = "#>")
 library(tidyverse)
 library(estimatr)
 library(haven)
 library(readxl)
 #loading final data
-
-#setwd("C:/Users/Ibrahim Amir/Dropbox/Pakistan_Assets")
 
 final_assets <- read_dta("data/Luke_08282018_Asset.dta")%>%
   mutate_at(vars(uid,cnic), funs(as.character))
@@ -27,7 +31,6 @@ final_assets <- read_dta("data/Luke_08282018_Asset.dta")%>%
 scrutiny_list <- read_csv("data/candidate_scrutiny_list.csv")%>%
   mutate(cnic=as.character(candidate_CNIC_ECP))
 final_cand_uids <- read_excel("data/candidate_uids_complete.xls")
-
 
 #1: Check for entry errors as we previously did
 errs <- final_assets %>%
@@ -64,7 +67,6 @@ write.csv(errs, file = "data/flagged_entries_final.csv", row.names = FALSE)
 
 #missing_cnics_categorized <- read_excel("data/missing_cnics_categorized.xlsx")%>%
 #  mutate(cnic=as.character(cnic), correct_cnic=as.character(correct_cnic), uid=as.character(uid))
-
 ```
 
 #### 1. CNICs
@@ -118,7 +120,10 @@ With the current data, we have 13198 confirmed correctly entered CNICs ~76 perce
 Of the total 17265 observations, we now have uids for 8745 candidates. The UID is missing (-9999) for 8517 candidates.And 3 are not matched (likely due to errors which we'll check). 
 
 ```{r, echo=FALSE}
-
+select(final_assets, 1:4, candidate_name, uid) %>% head(20)
+final_cand_uids %>% head(20)
+nrow(final_assets)
+nrow(final_cand_uids)
 final_assets%>%
   mutate(
     uid_missing=case_when(
@@ -202,7 +207,7 @@ final_assets%>%
   # select(starts_with("im_prop_pak_p_"), im_prop_value_total, im_prop_missing)%>%
   # filter(im_prop_value_total==0)%>%
   # select(im_prop_pak_p_1:im_prop_pak_p_5, im_prop_value_total, im_prop_missing)
-  {table( .$im_prop_missing, .$im_prop_opk_missing)}
+  {with(., table(im_prop_missing, im_prop_opk_missing))}
 ```
 
 It appears there are 6762 candidates who have declared no immovable assets in Pakistan. Similarly, only 193 candidates have declared immovable asset ownership outside Pakistan. 
@@ -215,10 +220,14 @@ In addition to immovable asset values and details, other measures of wealth we h
 1. Business Capital Ownership within and outside Pakistan
 2. Investments in varying forms (stocks, loans, mortages)
 3. Total value of owned motor cars (the motor car number and count ALL NA majorly)
+TODO Check how many are -99 for car cost and how many are 0, check if either means that there were cars reported but no value. involves checking some forms/asking AT
 ```{r echo=FALSE}
+select(final_assets, contains("motor"))
+table(final_assets$motor_number, useNA="always")
 table(final_assets$motor_g_count, useNA="always")
 ```
 4. Jewellery: 8309 candidates have reported the value of jewellery owned, and of those for which value is not available, we have the weights of 7610 as shown in the table below.
+TODO get distribution of valuations of jewelry that people are using: rupees / weight for those that reported both, and then create imputed jewel_val for those with missing jewelry using the mean of this valuation
 ```{r echo=FALSE}
 
 final_assets%>%
@@ -256,12 +265,46 @@ final_assets%>%
 
 ```
 8. Current fy and past fy net assets: we have reported values for both of these for 10987 candidates
+TODO chnage to case_when for >0, ==0, and ==-99
+TODO ensure that 0s are actual 0s not blank spaces
 ```{r echo=FALSE}
 final_assets%>%
   mutate(fy_assets_av=current_fy_net_assets>0 | past_fy_net_assets>0)%>%
   {table(.$fy_assets_av)}
 
+final_assets %>%
+  mutate(log_assets_av = ifelse(current_fy_net_assets < 0, NA, log(current_fy_net_assets+1))) %>%
+  {hist(.$log_assets_av)}
+final_assets %>%
+  mutate(log_assets_av = ifelse(current_fy_net_assets < 0, NA, log(current_fy_net_assets+1)),
+         log_assets_av_l1 = ifelse(past_fy_net_assets < 0, NA, log(past_fy_net_assets+1))) %>%
+         {with(., plot(log_assets_av_l1, log_assets_av))}
+
+aff_ass <- final_assets %>%
+  mutate(log_assets_av = ifelse(current_fy_net_assets < 0, NA, log(current_fy_net_assets+1)),
+         log_assets_av_l1 = ifelse(past_fy_net_assets < 0, NA, log(past_fy_net_assets+1)))
+
+aff_ass %>%
+  {with(., plot(log_assets_av_l1, log_assets_av, col = rgb(0, 0, 0, 0.1)))}
+
+ggplot(aff_ass, aes(x = log_assets_av, y = log_assets_av_l1)) + 
+  geom_hex()
+
+ggplot(aff_ass, aes(x = log_assets_av, y = log_assets_av_l1)) + 
+  geom_point(alpha = 0.05) + 
+  theme_bw()
+
+ggplot(aff_ass, aes(x = log_assets_av, y = log_assets_av_l1)) + 
+  geom_jitter(width = 0.5, height = 0.5, alpha = 0.1)
+
 ```
+
+TODO take diff in assets by year and see what those increases are and backcheck if the are genuine
+
+### Affidavit data
+
+TODO start cleaning and categorizing education, occupation, and amounts paid to parties and amounts received from parties
+
 ##### Steps to consider going forward
 * CNICs: What to do about unmatched cnics (ones not in scrutiny)
 * Occupation and Education variables need to be cleaned and categorized

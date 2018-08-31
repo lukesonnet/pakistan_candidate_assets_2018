@@ -1,0 +1,26 @@
+type_seat,const_number,candidate_name,enum_name,uid,cnic,cnic_length,cnic_empty_incorrect,cnic_empty_category,cnic_in_scrutiny
+"NA",142,Mh Tariq,131,05567,0,1,TRUE,Missing value - 0,FALSE
+PB,37,M.Zakria,134,-9999,888888888888,12,TRUE,Missing value -8,FALSE
+PK,19,Mushtaq Ahmad,125,-9999,540161898870,12,TRUE,Length error - 10 or 12,FALSE
+PK,19,Jehangir Khan,125,04478,0,1,TRUE,Missing value - 0,FALSE
+PK,23,Noor Muhamad Khan,125,-9999,0,1,TRUE,Missing value - 0,FALSE
+PK,24,M Perviz,125,-9999,0,1,TRUE,Missing value - 0,FALSE
+PK,24,M Ali Khan,125,04527,0,1,TRUE,Missing value - 0,FALSE
+PK,38,Zaid Bin Ayub,130,04718,310114432201,12,TRUE,Length error - 10 or 12,FALSE
+PP,114,Kaleem Allah,125,-9999,0,1,TRUE,Missing value - 0,FALSE
+PP,114,Main Abdul Mannan,125,-9999,0,1,TRUE,Missing value - 0,FALSE
+PP,114,M Shakoor,125,05765,0,1,TRUE,Missing value - 0,FALSE
+PP,114,Raja Saleem,125,05766,0,1,TRUE,Missing value - 0,FALSE
+PP,117,Abdul Rauf Rasheed,125,-9999,0,1,TRUE,Missing value - 0,FALSE
+PP,145,Mehmood Ahmad,144,06281,212188464646,12,TRUE,Length error - 10 or 12,FALSE
+PP,146,M Mohsin,144,06295,0,1,TRUE,Missing value - 0,FALSE
+PP,147,Shabaz,144,-9999,0,1,TRUE,Missing value - 0,FALSE
+PP,151,Abdul Rasheed,144,06360,3.5202e+12,10,TRUE,Length error - 10 or 12,FALSE
+PP,152,Imran Javed,144,06375,3.5202e+12,10,TRUE,Length error - 10 or 12,FALSE
+PP,155,Ghullam Hoor,144,06431,352018413572,12,TRUE,Length error - 10 or 12,FALSE
+PP,155,Javaid Anwar,144,06433,320150119121,12,TRUE,Length error - 10 or 12,FALSE
+PP,164,Muhammad Mushtaq,143,06592,320149988727,12,TRUE,Length error - 10 or 12,FALSE
+PP,287,Jamshaid Khalil Arif,105,-9999,408790119603,12,TRUE,Length error - 10 or 12,FALSE
+PS,97,Mohammad Nayaz,156,-9999,342200330403,12,TRUE,Length error - 10 or 12,FALSE
+PS,103,Faisal Ahmad Baig,145,-9999,230191111337,12,TRUE,Length error - 10 or 12,FALSE
+Reserved,NA,Sitara Noor,141,-9999,320219657508,12,TRUE,Length error - 10 or 12,FALSE

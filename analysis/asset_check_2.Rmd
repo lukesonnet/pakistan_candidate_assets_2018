@@ -99,6 +99,16 @@ cnic_flags <- final_assets%>%
 table(cnic_flags$cnic_empty_incorrect)
 table(cnic_flags$cnic_empty_category)
 
+cnic_flags%>%
+  filter(cnic_empty_category %in% c("Missing value - 0", "Missing value -8", "Length error - 10 or 12"))%>%
+  write_csv("data/cnic_length_num_errors.csv", append=F)
+
+table(cnic_flags$cnic_in_scrutiny)
+
+cnic_flags%>%
+  filter(!cnic_in_scrutiny)%>%
+  write_csv("data/cnics_not_in_scrutiny.csv", append=F)
+
 ```
 
 One additional check we can do is to match the list of cnics we have with the original scrutiny list:

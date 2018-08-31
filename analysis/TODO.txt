@@ -1,0 +1,7 @@
+TO DOs:
+* Motor Cars: Check how many are -99 for car cost and how many are 0, check if either means that there were cars reported but no value. involves checking some forms/asking AT
+* Jewellery:  get distribution of valuations of jewelry that people are using: rupees / weight for those that reported both, and then create imputed jewel_val for those with missing jewelry using the mean of this valuation
+* Net Assets: chnage to case_when for >0, ==0, and ==-99
+* Net Assets: ensure that 0s are actual 0s not blank spaces
+* Net Assets: take diff in assets by year and see what those increases are and backcheck if the are genuine
+* Affidavit: start cleaning and categorizing education, occupation, and amounts paid to parties and amounts received from parties

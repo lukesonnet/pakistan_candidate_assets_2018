@@ -21,6 +21,7 @@ library(tidyverse)
 library(estimatr)
 library(haven)
 library(readxl)
+library(ggplot2)
 #loading final data
 
 final_assets <- read_dta("data/Luke_08282018_Asset.dta")%>%
@@ -53,7 +54,7 @@ errs <- final_assets %>%
     vars(ends_with("val_error")),
     any_vars(.)
   )
-write.csv(errs, file = "data/flagged_entries_final.csv", row.names = FALSE)
+#write.csv(errs, file = "data/flagged_entries_final.csv", row.names = FALSE)
 
 # # CHECKING FOR ERRORS IN CNIC ENTRIES
 # 
@@ -120,10 +121,7 @@ With the current data, we have 13198 confirmed correctly entered CNICs ~76 perce
 Of the total 17265 observations, we now have uids for 8745 candidates. The UID is missing (-9999) for 8517 candidates.And 3 are not matched (likely due to errors which we'll check). 
 
 ```{r, echo=FALSE}
-select(final_assets, 1:4, candidate_name, uid) %>% head(20)
-final_cand_uids %>% head(20)
-nrow(final_assets)
-nrow(final_cand_uids)
+
 final_assets%>%
   mutate(
     uid_missing=case_when(
@@ -154,6 +152,75 @@ final_cand_uids%>%
 ```
 Right then, found an error, Malik Zabeeh Ullah correct uid: 08773. Couldn't catch the other two errors hmm. 
 
+**NEW:**
+Another thing we can do is go the reverse way; see how many of candidates from the candidate uid list are in our asset data. So far one plausible explanation is that candidates who submitted asset forms (such as Perveez Musaraf) but did not end up running might be the source of the uids. However we still don't expect ~8000 missing uids, there can't be that many. We expect no more than 5605 "-9999" UIDs.
+
+``` {r}
+select(final_assets, 1:4, candidate_name, uid) %>% head(20)
+final_cand_uids %>% head(20)
+nrow(final_assets)
+nrow(final_cand_uids)
+
+final_cand_uids%>%
+  filter(as.numeric(uid)==-9999)
+
+final_cand_uids%>%
+  mutate(uid_match=case_when(
+    !(as.numeric(uid) %in% as.numeric(final_assets$uid)) ~ "Not in Final Assets",
+    (as.numeric(uid) %in% as.numeric(final_assets$uid)) ~ "In Final Assets"
+    )
+  )%>%
+  {with(.,table(uid_match))}
+
+```
+
+It appears that from the final candidate uid list, we only found matches for 8286 uids and did not find matches for 3374 uids. This means that 3374 candidate uids are either missing from the asset data OR that the candidates are present but with a -9999. 
+
+Additionally, if we add the gap between nrows(final_assets) and nrows(final_cand_uids) with the uids not in final assets, we get 8979 candidates (our final asset data has missing 8517 candidate uids). We can further investigate those not in final assets:
+
+```{r}
+
+final_cand_uids%>%
+  mutate(uid_match=case_when(
+    !(as.numeric(uid) %in% as.numeric(final_assets$uid)) ~ "Not in Final Assets",
+    (as.numeric(uid) %in% as.numeric(final_assets$uid)) ~ "In Final Assets"
+    )
+  )%>%
+  filter(uid_match=="Not in Final Assets")%>%
+  #{with(.,table(pa_id))}
+  filter(pa_id=="NA-129")
+#lets check out NA-129
+
+
+  final_assets%>%
+    filter(type_seat=="NA", const_number==129)%>%
+    select(type_seat, const_number, candidate_name, uid)
+```
+
+Okay this is pointing to a bigger problem. 10/ 11 candidates in the final_cand_uid list of NA-129 that were flagged as having their uids not in the final_assets data, are present in the final_assets data **but** instead of being given (-9999), they've been given **different uids** that are likely to be typos in data entry. Let me try and flesh this out a bit further:
+
+```{r}
+
+#PART 1: first checking the uids given to candidates of NA-129 in final_assets
+final_cand_uids%>%
+  filter(as.numeric(uid) %in% c(01370:01379))
+
+final_assets%>%
+  filter(as.numeric(uid) %in% c(01370:01379))%>%
+  select(type_seat, const_number, candidate_name, uid)
+
+#PART 2: first checking the uids given to candidates of NA-129 in final_cand_uids
+final_cand_uids%>%
+  filter(as.numeric(uid) %in% c(00368:00378))
+
+final_assets%>%
+  filter(as.numeric(uid) %in% c(00368:00378))%>%
+  select(type_seat, const_number, candidate_name, uid)
+
+```
+Ho dear. Basically, the same uid has been assigned to two different people in two different constituencies. And the uids the NA-129 candidates **should have** been given in the final_assets data, they weren't assigned to anyone. 
+
+Basically this tells me the uids are no longer trustworthy
 
 #### 3. Assets (Immovable)
 

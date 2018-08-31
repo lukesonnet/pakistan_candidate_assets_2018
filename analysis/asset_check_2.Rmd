@@ -209,7 +209,7 @@ final_assets%>%
   filter(as.numeric(uid) %in% c(01370:01379))%>%
   select(type_seat, const_number, candidate_name, uid)
 
-#PART 2: first checking the uids given to candidates of NA-129 in final_cand_uids
+ #PART 2: first checking the uids given to candidates of NA-129 in final_cand_uids
 final_cand_uids%>%
   filter(as.numeric(uid) %in% c(00368:00378))
 
@@ -220,7 +220,36 @@ final_assets%>%
 ```
 Ho dear. Basically, the same uid has been assigned to two different people in two different constituencies. And the uids the NA-129 candidates **should have** been given in the final_assets data, they weren't assigned to anyone. 
 
-Basically this tells me the uids are no longer trustworthy
+Basically this tells me the uids are no longer trustworthy.
+
+Let me generate a csv with the duplicate 
+```{r}
+duplicated_by_uid<- final_assets%>%
+  mutate(dup_by_uid=duplicated(final_assets["uid"], fromLast = FALSE))%>%
+  filter(dup_by_uid & uid!=-9999)%>%
+  arrange(as.numeric(uid))%>%
+  select(type_seat, const_number, candidate_name, uid, cnic)
+
+duplicated_by_uid%>%
+  as.data.frame()
+
+
+dup_by_uid <-final_assets%>%
+  group_by(uid)%>%
+  mutate(n_names=n_distinct(candidate_name))%>%
+  filter(as.numeric(uid)!=-9999)%>%
+  filter(n()>1)%>%
+  filter(n_names!=1)%>%
+  select(type_seat, const_number, candidate_name, uid, cnic)%>%
+  arrange(uid)
+
+dup_by_uid%>%
+  as.data.frame()
+
+str(dup_by_uid$uid)
+
+  write_csv(dup_by_uid,"data/duplicated_uids.csv", append = F)
+```
 
 #### 3. Assets (Immovable)
 
@@ -287,11 +316,22 @@ In addition to immovable asset values and details, other measures of wealth we h
 1. Business Capital Ownership within and outside Pakistan
 2. Investments in varying forms (stocks, loans, mortages)
 3. Total value of owned motor cars (the motor car number and count ALL NA majorly)
-TODO Check how many are -99 for car cost and how many are 0, check if either means that there were cars reported but no value. involves checking some forms/asking AT
+
 ```{r echo=FALSE}
 select(final_assets, contains("motor"))
 table(final_assets$motor_number, useNA="always")
 table(final_assets$motor_g_count, useNA="always")
+
+table(final_assets$motor_cost)
+
+# 0: 3536
+#-99: 6850
+
+#are some values which are pretty low
+
+final_assets%>%
+  filter(motor_cost<1000)%>%
+  select(type_seat, const_number,candidate_name, motor_cost)
 ```
 4. Jewellery: 8309 candidates have reported the value of jewellery owned, and of those for which value is not available, we have the weights of 7610 as shown in the table below.
 TODO get distribution of valuations of jewelry that people are using: rupees / weight for those that reported both, and then create imputed jewel_val for those with missing jewelry using the mean of this valuation

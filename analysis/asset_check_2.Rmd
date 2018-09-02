@@ -22,6 +22,7 @@ library(estimatr)
 library(haven)
 library(readxl)
 library(ggplot2)
+library(hexbin)
 #loading final data
 
 final_assets <- read_dta("data/Luke_08282018_Asset.dta")%>%
@@ -341,7 +342,16 @@ table(final_assets$motor_cost)
 
 final_assets%>%
   filter(motor_cost<1000)%>%
-  select(type_seat, const_number,candidate_name, motor_cost)
+  select(type_seat, const_number,candidate_name, motor_cost)%>%
+  {table(.$motor_cost)}
+
+final_assets%>%
+  filter(motor_cost<1000)%>%
+  select(type_seat, const_number,candidate_name, motor_cost)%>%
+  mutate(mot_id = paste0(type_seat, "-", const_number, "-", candidate_name, "-", motor_cost))%>% 
+  filter(motor_cost==0)%>%
+  {sample(.$mot_id, size=5)}
+#just back_check these
 ```
 4. Jewellery: 8309 candidates have reported the value of jewellery owned, and of those for which value is not available, we have the weights of 7610 as shown in the table below.
 TODO get distribution of valuations of jewelry that people are using: rupees / weight for those that reported both, and then create imputed jewel_val for those with missing jewelry using the mean of this valuation
@@ -358,7 +368,15 @@ final_assets%>%
     (jewel_tolas==0) ~ "Zero",
     (jewel_tolas==-99 | jewel_tolas=="") ~ "Weight Not Available"
   ))%>%
-  {table(.$jewel_val_av, .$jewel_tola_av, useNA = "always")}
+  #{table(.$jewel_val_av, .$jewel_tola_av, useNA = "always")}
+  filter(jewel_val_av=="Value Available", jewel_tola_av=="Weight Available")%>%
+  mutate(imputed_jewel_price=jewel_cost/jewel_tolas)%>%
+  {summary(.$imputed_jewel_price)}
+
+#trying to find imputed prices of jewellery: the mean appears to be 81110 per tola...
+#wait but small hiccup: How do we know that when mentioning their jewellery ownership that candidates have treated the two variables as addressing the same peice of jewellery. What I mean to say is, what if its e.g: "I own 80,000 PKR worth of jewellery AND also 11 tolas of jewellery" instead of "I own 80,000 PKR worth of jewellery which is total 11 tolas in weight".
+
+#the former would explain the high mean for imputed value
 ```
 5. Cash in hand and at bank are estimates of the total funds in cash available to any candidate. This may be important both in that we expect this to be the main pool from which expenditure for the campaign may take place, given it is not easy to sale off immovable property to fund an election at short notice (assuming the records are up to date till submission of nomination forms). We have total cash details available for 12141 candidates, which is a good sign.
 ```{r echo=FALSE}
@@ -386,8 +404,50 @@ TODO chnage to case_when for >0, ==0, and ==-99
 TODO ensure that 0s are actual 0s not blank spaces
 ```{r echo=FALSE}
 final_assets%>%
-  mutate(fy_assets_av=current_fy_net_assets>0 | past_fy_net_assets>0)%>%
-  {table(.$fy_assets_av)}
+  mutate(fycurrent_assets_av=case_when(
+    current_fy_net_assets>0 ~ "Available (>0)",
+    current_fy_net_assets==0 ~ "Zero (=0)",
+    current_fy_net_assets<0 & current_fy_net_assets!=-99 ~ "Negative (<0)",
+    current_fy_net_assets==-99 ~ "Missing (-99)",
+    is.na(current_fy_net_assets) ~ "Missing (NA)"
+  ),
+  fypast_assets_av=case_when(
+    past_fy_net_assets>0 ~ "Available (>0)",
+    past_fy_net_assets==0 ~ "Zero (=0)",
+    past_fy_net_assets<0 & past_fy_net_assets!=-99 ~ "Negative (<0)",
+    past_fy_net_assets==-99 ~ "Missing (-99)",
+    is.na(past_fy_net_assets) ~ "Missing (NA)"
+  )
+  )%>%
+  {with(.,table(fycurrent_assets_av, fypast_assets_av, useNA = "always"))}
+
+
+  final_assets%>%
+  mutate(fycurrent_assets_av=case_when(
+    current_fy_net_assets>0 ~ "Available (>0)",
+    current_fy_net_assets==0 ~ "Zero (=0)",
+    current_fy_net_assets<0 & current_fy_net_assets!=-99 ~ "Negative (<0)",
+    current_fy_net_assets==-99 ~ "Missing (-99)",
+    is.na(current_fy_net_assets) ~ "Missing (NA)"
+  ),
+  fypast_assets_av=case_when(
+    past_fy_net_assets>0 ~ "Available (>0)",
+    past_fy_net_assets==0 ~ "Zero (=0)",
+    past_fy_net_assets<0 & past_fy_net_assets!=-99 ~ "Negative (<0)",
+    past_fy_net_assets==-99 ~ "Missing (-99)",
+    is.na(past_fy_net_assets) ~ "Missing (NA)"
+  )
+  )%>%
+  filter(fypast_assets_av=="Available (>0)", fycurrent_assets_av=="Available (>0)")%>%
+  mutate(delta_assets=current_fy_net_assets-past_fy_net_assets,
+         asset_delta_cat=ifelse(delta_assets>0, "Increased", "Decreased"),
+         log_delta_asset=ifelse(delta_assets>0, log(delta_assets), log(-(delta_assets)))
+         )%>%
+    #{with(.,table(asset_delta_cat))}
+    {hist(.$log_delta_asset)}
+  #{summary(.$delta_assets)}
+  
+  #it appears that fy_net_assets increased for 6701 candidates and decreased for 3461 candidates
 
 final_assets %>%
   mutate(log_assets_av = ifelse(current_fy_net_assets < 0, NA, log(current_fy_net_assets+1))) %>%
@@ -416,7 +476,6 @@ ggplot(aff_ass, aes(x = log_assets_av, y = log_assets_av_l1)) +
 
 ```
 
-TODO take diff in assets by year and see what those increases are and backcheck if the are genuine
 
 ### Affidavit data
 

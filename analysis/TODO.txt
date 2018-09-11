@@ -1,6 +1,11 @@
 TO DOs:
 
+Data Cleaning: 
 * Net Assets: chnage to case_when for >0, ==0, and ==-99
 * Net Assets: ensure that 0s are actual 0s not blank spaces
 * Net Assets: take diff in assets by year and see what those increases are and backcheck if the are genuine
 * Affidavit: start cleaning and categorizing education, occupation, and amounts paid to parties and amounts received from parties
+
+
+* Merge in the corrected num_length_cnics
+* Merge in the corrected uids

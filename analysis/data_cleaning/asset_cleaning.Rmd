@@ -39,7 +39,8 @@ cleaned_assets <- final_assets
 
 #### Part 1: Cleaning identifying Variables
 
-##### Candidate Names:
+
+#### Candidate Names:
 The variables **type_seat**, **const_number** seem fine and don't need any corrections. 
 We, will, however, make corrections to the **candidate_name** variable
 ```{r}
@@ -79,14 +80,81 @@ cleaned_assets <- final_assets%>%
 # We have cleaned the candidate name variable, except we now have 25 candidates for whom candidate name is NA.
 
 ```
-##### CNICs:
-Still waiting on correct CNICs to come from AT before proceeding
+
+
+#### CNICs:
+
 
 ```{r}
 
-```
+# PART 1: CNICs not in scrutiny corrections
 
-##### UIDs:
+cnics_not_in_scrutiny_corrections <- read_excel("data/cnics_not_in_scrutiny_corrections.xlsx")%>%
+  mutate(cnic_not_in_scrutiny_correct=as.character(Correction))%>%
+  select(key, cnic_not_in_scrutiny_correct)
+
+cleaned_assets<-left_join(cleaned_assets, cnics_not_in_scrutiny_corrections, by = "key")
+
+cleaned_assets<-cleaned_assets%>%
+  mutate(
+    cnic_final=ifelse(is.na(cnic_not_in_scrutiny_correct),cnic, cnic_not_in_scrutiny_correct)
+  )
+
+# PART 2: CNIC NUM Length corrections
+
+cnic_num_length_correct<-read_csv("data/cnic_length_num_corrections.csv")%>%
+  mutate(cnic_num_length_correction=as.character(Correcction))%>%
+  select(key, cnic_num_length_correction)
+
+cleaned_assets<-left_join(cleaned_assets, cnic_num_length_correct, by = "key")
+
+#table(cleaned_assets$cnic_num_length_correction, useNA = "always")
+
+cleaned_assets<-cleaned_assets%>%
+  mutate(cnic_final=ifelse(is.na(cnic_num_length_correction), cnic_final, cnic_num_length_correction))
+
+# PART 3: General CNIC cleaning
+
+cleaned_assets<-cleaned_assets%>%
+  mutate(
+    cnic_final=ifelse(cnic_final %in% c("8888888888888","9999999999999","-9999999999999","-999999999999"),NA,cnic_final)
+  )
+
+# cleaned_assets%>%
+#   mutate(
+#     cnic_na=is.na(cnic_final)
+#   )%>%
+#   {table(.$cnic_na)}
+
+cleaned_assets<-cleaned_assets%>%
+  select(-cnic_not_in_scrutiny_correct,-cnic_num_length_correction)
+
+#checking
+cleaned_assets%>%
+  mutate(
+    cnic_length_error=nchar(cnic_final)!=13,
+    cnic_not_in_scrutiny=!(cnic_final %in% scrutiny_list$cnic)
+  )%>%
+  {table(.[!is.na(.$cnic_final),]$cnic_not_in_scrutiny, useNA = "always")}
+
+cleaned_assets%>%
+  mutate(
+    cnic_hai=!is.na(cnic_final)
+  )%>%
+  {table(.$cnic_hai)}
+  
+```
+Made two types of corrections: num_length and scrutiny_list. The reason of doing the num_length corrections in part 2 is that if we do the other way around, still left with some num_length errors that are overwritten.
+
+The new variable **cnic_final** is to be treated as the correct cnic version.
+
+There are no length errors in this final version. 
+Despite the not in scrutiny CNIC back-checking, we find that there are 3591 flagged as not in scrutiny, and when we filter out the NAs from these 4316, we are left with **2386** CNICs not found in the scrutiny list. Our *original* number of flags of not_in_scrutiny prior to asking AT for corrections via back-checking was **4068**. The file they sent us was of **3616** cnics. This implies that a lot of these flags were because the candidate was not in the scrutiny list. Your call on whether we should investigate more or not. At the least it would be good to ask for a breakdown of the back-checking, asking if they know how many of the CNICs back-checked needed to be corrected. 
+
+Overall, we have CNICs on 16316 candidates. CNIC is NA for 1205 rows ~ 7.4 percent of total rows.
+
+
+#### UIDs:
 Using the file of corrected uids sent by AT, I create a new variable that is the final_uid
 
 ```{r}
@@ -129,7 +197,8 @@ cleaned_assets <- cleaned_assets%>%
 
 This includes all variables measuring immovable, movable property and business capital as reported in the asset form. The data in the affidavit will be dealt with in a separate section. 
 
-##### Immovable property inside Pakistan
+
+#### Immovable property inside Pakistan
 
 ```{r}
 #table(cleaned_assets$im_prop_pak_g_count)
@@ -180,7 +249,7 @@ cleaned_assets<-left_join(cleaned_assets, totes, by = "key")
 ```
 **IMP**: The new variable that measures the total of values of all immovable property in Pakistan is **im_prop_pak_totes**. One issue with this variable is that the sums of all NAs is also declared as 0 and not NA. 
 
-##### Immovable property outside Pakistan
+#### Immovable property outside Pakistan
 We'll repeat the above exercise for immovable property declared outside Pakistan.
 
 ```{r}
@@ -225,7 +294,7 @@ rm(totes, totes2)
 ```
 **IMP**: The new variable that measures the total of values of all immovable property outside Pakistan is **im_prop_pako_totes**. One issue with this variable is that the sums of all NAs is also declared as 0 and not NA. 
 
-##### Business Capital within and outside Pakistan
+#### Business Capital within and outside Pakistan
 
 ```{r}
 # table(cleaned_assets$bus_cap_wpk_count)
@@ -271,7 +340,7 @@ rm(biztotes, biztotes2)
 ```
 **IMP**: The variables **bus_cap_wpk_totes** and **bus_cap_opk_totes** give the total sums of values of business capital owned in and outside Pakistan respectively. 0 if not reported or reported as 0.
 
-##### Other Asset Measures - Bank Drafts: Motor_cost and Investments Total
+#### Other Asset Measures - Bank Drafts: Motor_cost and Investments Total
 
 ```{r}
 # table(cleaned_assets$bank_drafts)
@@ -302,7 +371,8 @@ rm(invtotes)
 ```
 **IMP**: The new variable **invest_totes** sums up all investments types.
 
-##### Jewellery
+
+#### Jewellery
 
 ```{r}
 
@@ -348,7 +418,7 @@ cleaned_assets<- cleaned_assets%>%
 5. jewel_val_case, jewel_tola_case * : Categorical variables tell us is value/weight is available, NA or Zero
 
 
-##### Other Assets, Savings and Liabilites
+#### Other Assets, Savings and Liabilites
 
 ```{r}
 cleaned_assets<- cleaned_assets%>%
@@ -359,7 +429,8 @@ Nothing new here. Just converted negative numbers to NA.
 
 ### Part 3: Cleaning the Affidavit variables.
 
-##### Candidate General Info
+
+#### Candidate General Info
 
 ```{r}
 cleaned_assets <- cleaned_assets%>%
@@ -405,7 +476,7 @@ cleaned_assets <- cleaned_assets%>%
 **IMP**: Renaming done here to allow for clarification when using variables, the prefix "cand_vote_" indicates that the details are of the place where the candidate is registered. Some cleaning of the district, tehsil and dependents number variables done. 
 
 
-##### Crimes
+#### Crimes
 ```{r}
 
 cleaned_assets<-cleaned_assets%>%
@@ -417,7 +488,8 @@ cleaned_assets<-cleaned_assets%>%
 ```
 Just some basic cleaning, removed the variable crimes_count because it was an unclean duplicate of num_criminal.
 
-##### Education and occupation
+
+#### Education and occupation
 
 ```{r}
 
@@ -431,7 +503,8 @@ cleaned_assets <- cleaned_assets%>%
 ```
 I've only cleaned some part to create NAs where needed, and unemployed/no education values by manually scanning the entries and identifying those needing conversion. cleaning these two is a bit of challenge because they've been recorded as is, so I'm unsure how I can categorize them. One way might be to employ some RAs to categorize each data point according to 4 digit occupation codes and categorical vars for education.
 
-##### Income and Taxes Paid
+
+#### Income and Taxes Paid
 
 ```{r}
 # str(cleaned_assets$year_income)
@@ -454,7 +527,8 @@ cleaned_assets<-cleaned_assets%>%
 The variables year_income*'s are only binary variables and don't really give us any information when compared with the form, I suggest we delete these? 
 Otherwise cleaned variables and renamed them to make them more descriptive. Newvars are titled: income_total_201*, tax_paid_20*, source_income_20*. * = {15,16,17}
 
-##### Agricultural Income and Tax
+
+#### Agricultural Income and Tax
 
 This is similar to the income case otherwise, as the variables are already fairly clean. As in the case of year_income*'s, the variables year_agri_income*'s are also binary and don't really have any useful info for us.
 
@@ -480,12 +554,13 @@ cleaned_assets<-cleaned_assets%>%
 What **is** an important exercise, is converting the agricultural land holding to a single unit (I will use square feet) to allow for adequate comparison, even if we don't assign a value price for it.
 
 Land Conversion Rates:
-1 Marla: 225 sq feet for housing
-1 Marla: 272.25 sq feet for agriculture (*)
-1 Kanal = 20 Marla
-1 Kila = 1 Acre = 8 Kanal = 8*20 = 160 Marlas
-1 Acre = 8 Kanal = 8*20 = 160 Marlas
-I Muraba = 25 Acre = 400 Kanal = 8000 Marlas
+
+* 1 Marla: 225 sq feet for housing
+* 1 Marla: 272.25 sq feet for agriculture (*)
+* 1 Kanal = 20 Marla
+* 1 Kila = 1 Acre = 8 Kanal = 8*20 = 160 Marlas
+* 1 Acre = 8 Kanal = 8*20 = 160 Marlas
+* I Muraba = 25 Acre = 400 Kanal = 8000 Marlas
 
 Historically, Kilas and Acres are slightly different (+-1 kanal) but those measurements are only applicable in a few areas of South Punjab, but are now used interchangeably.
 
@@ -540,7 +615,8 @@ cleaned_assets <- cleaned_assets%>%
 ```
 So the variables **agri_land_holding_20*_sqfeet** give us the land holdings in unit measurement (sq-feet). Next step would be to somehow find land value of these. This would be easier if we had an idea *where* the land was located, but we don't so we will have to assume a value for **average_agri_land_price per sqfeet** and then multiply by this to get a value for the land owned, but since that's just a linear increase, just using the existing ones as a measure of value is okay too, I think.
 
-##### Cand election history, party contribution, foreigner
+
+#### Cand election history, party contribution, foreigner
 
 ```{r}
 cleaned_assets<- cleaned_assets%>%
@@ -572,7 +648,8 @@ cleaned_assets<- cleaned_assets%>%
 ```
 The renaming is necessary so as to prevent confusion with the cons_name and type of current election.
 
-##### FY Assets
+
+#### FY Assets
 
 ```{r}
 cleaned_assets<-cleaned_assets%>%
@@ -588,7 +665,8 @@ cleaned_assets<-cleaned_assets%>%
 ```
 A brief look tells us that the existing variable documenting called change_assets is wrong, so the new constructed **fy_net_assets_change** should be used as the accurate measure of net change. I would delete change_assets, but not doing so for now in case you want to keep it.
 
-##### Mobile Phone Numbers
+
+#### Mobile Phone Numbers
 
 ```{r}
 
@@ -611,7 +689,7 @@ write.csv(cleaned_assets, file="data/final_data/cleaned_asset_data_IK.csv", row.
 ***
 
 Still to clean:
-1. CNICs: add in corrected CNICs sent by AT and make new correct CNIC var similar to UID case correction
-2. Categorize **educ**, **occup**.
-3. Waiting on AT for **motor_cost** and **motor_number** which currently have no observations.
-4. Value for agri land holding?
+
+1. Categorize **educ**, **occup**.
+2. Waiting on AT for **motor_cost** and **motor_number** which currently have no observations.
+3. Value for agri land holding?

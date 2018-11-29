@@ -1,8 +1,7 @@
 ---
-title: "Asset Data Cleaning"
+title: "Asset Data Matching"
 author: "Ibrahim Khan & Luke Sonnet"
-date: "9/7/2018"
-output: html_document
+output: md_document
 editor_options: 
   chunk_output_type: console
 ---

@@ -7,3 +7,8 @@
 # For google drive REST api
 credentials.json
 token.json
+
+# md figures, so we only check markdown itself
+00_generate_asset_checks_files/
+01_asset_matching_files/
+02_asset_cleaning_files/

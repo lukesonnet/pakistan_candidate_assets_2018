@@ -1,0 +1,1505 @@
+---
+title: "Asset Data Cleaning"
+author: "Ibrahim Khan & Luke Sonnet"
+date: "9/7/2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+I'll add all the corrections to a new df called "cleaned_assets". Also, please note that since I went in a variable by variable manner rather than grouping by type of cleaning needed (so that I don't miss anything), there is a lot of extra code than would otherwise be unecessary to do all this. So bear with me. If I get time later, I can produce a file from this with much shorter code. 
+
+Also, there's a list of stuff still left to do at the end.
+
+In the code, the parts that don't make any changes to the data and are only as checks have been commented out in the final version.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, root.dir= "", comment = "#>")
+options(scipen = 3)
+```
+
+```{r, include=FALSE}
+rm(list=ls())
+library(tidyverse)
+library(estimatr)
+library(haven)
+library(readxl)
+library(hexbin)
+library(varhandle)
+
+
+#loading final data
+final_assets <- read_dta("data/rsols_data/Luke_08282018_Asset.dta") %>%
+  mutate_at(vars(uid, cnic, contact_num), funs(as.character)) %>% 
+  mutate_all(funs(ifelse(. == "", NA, .))) %>%
+  mutate(entry = "old")
+
+# After complaints about some missing rows altogether in ~October 2018,
+# updated data was entered and sent
+new_assets <- read_csv("data/rsols_data/Asset Form Data_missing_rows.csv",
+                       na = c("", ".", "-99"),
+                       col_types = cols(cnic = col_character(),
+                                        contact_num = col_character())) %>%
+  rename_at(vars(ends_with("FY_net_assets"), KEY), tolower) %>%
+  mutate(entry = "new")
+setdiff(names(new_assets), names(final_assets))
+setdiff(names(final_assets), names(new_assets))
+
+raw_assets <- bind_rows(final_assets, new_assets)
+cleaned_assets <- raw_assets
+```
+
+### Part 1: Cleaning identifying Variables
+
+#### Constituency Codes
+
+```{r}
+constituency_codes <- paste0(cleaned_assets$type_seat,
+                             "-",
+                             cleaned_assets$const_number)
+cons_ids <- c(paste0("NA-", 1:272),
+          paste0("PP-", 1:297),
+          paste0("PB-", 1:51),
+          paste0("PK-", 1:99),
+          paste0("PS-", 1:130))
+setdiff(cons_ids,
+        constituency_codes)
+setdiff(constituency_codes,
+        cons_ids)
+
+cleaned_assets <- mutate(cleaned_assets,
+                         type_seat = ifelse(type_seat == "PS" & const_number > 206,
+                                            "NA",
+                                            type_seat),
+                         constituency_code = paste0(type_seat, "-", const_number))
+setdiff(cleaned_assets$constituency_code,
+        cons_ids)
+# only reserved NA in surplus of the constituency ids
+setdiff(cons_ids,
+        cleaned_assets$constituency_code)
+# NA 172, some sindh, and much of balochistan just seem to be missing, according to AT
+```
+
+#### Candidate Names
+
+Here I check if there are any `candidate_name`s that need cleaning and make minor changes.
+
+```{r}
+# CLEANING CANDIDATE NAMES
+
+# 
+# I generate two variables, A. the first will flag names that have any numeric values,
+#                           B. the second will flag names that have ONLY numeric values
+#                           C. the third will flag names that have BOTH numeric and chrs (A&!B)
+
+# B -> will be converted to NA
+# C -> names will be individually corrected
+
+cleaned_assets <- cleaned_assets %>%
+  mutate(name_has_any_nums=grepl("\\d", candidate_name), 
+         name_has_only_nums=check.numeric(candidate_name),
+         name_has_chrs_nums=name_has_any_nums&!name_has_only_nums, 
+         candidate_name=ifelse(name_has_only_nums, NA, candidate_name),
+         candidate_name = recode(
+           candidate_name,
+           `2Malik Hashim Khan` = "Malik Hashim Khan",
+           `Rab Nawaz Taniy0` = "Rab Nawaz Taniyo",
+           `Muhammad Qais 4` = "Muhammad Qais",
+           `Shah8D Raza` = "Shahid Raza",
+           `Mian M7Hammad Asghar` = "Mian Muhammad Asghar",
+           `Syed Mu4Taza Mehmood` = "Syed Murtaza Mehmood",
+           `Mal8K Muhmmad Ramzan` = "Malik Muhammad Ramzan",
+           `S6Eda Farah Azmi` = "Syeda Farah Azmi",
+           `Zarida Nasir -7` = "Zarida Nasir"
+           )
+         ) %>%
+  select(-starts_with("name_has_")) #to delete the intermediate variables we made to clean the names
+
+# We have cleaned the candidate name variable, except we now have 25 candidates for whom candidate name is NA.
+table(is.na(cleaned_assets$candidate_name))
+```
+
+#### CNICs:
+
+```{r}
+# The scrutiny forms released by the ECP serve as the basis for which
+# we check the CNICs of candidates in the asset data entry
+# This comes from the other scraping exercise with Colin
+scrutiny_list <- read_csv("data/other_data/ecp_scrutiny_form_cnics.csv") %>%
+  mutate(cnic = as.character(candidate_CNIC_ECP))
+
+cnics_not_in_scrutiny_corrections <- 
+  read_excel("data/rsols_corrections/cnics_not_in_scrutiny_corrections.xlsx",
+             col_types = c("text", "text")) %>%
+  rename(cnic_not_in_scrutiny_correction = Correction) %>%
+  filter(!duplicated(.)) %>% # some duplicated rows
+  group_by(key) %>% # still some duplicated keys
+  filter(!(n() > 1 & cnic_not_in_scrutiny_correction %in% c("8888888888888", "0"))) %>%
+  filter(!(key == "uuid:7016ff6a-3c4e-4e3a-97db-c026c70533b5" & cnic_not_in_scrutiny_correction == "9999999999999")) %>%
+  filter(!(key == "uuid:f6f060ac-3e22-466d-b9e2-d1baaa75a260" & cnic_not_in_scrutiny_correction == "1350356493209"))
+
+# check one ambiguity
+"1350356423209" %in% scrutiny_list$cnic
+"1350356493209" %in% scrutiny_list$cnic
+# check for remaining duplicates
+cnics_not_in_scrutiny_corrections %>%
+  filter(duplicated(key) | duplicated(key, fromLast = TRUE))
+cnics_not_in_scrutiny_corrections %>%
+  filter(duplicated(cnic_not_in_scrutiny_correction) | duplicated(cnic_not_in_scrutiny_correction, fromLast = TRUE))
+
+cleaned_assets <- left_join(cleaned_assets, 
+                            cnics_not_in_scrutiny_corrections,
+                            by = "key")
+
+
+# PART 2: CNIC NUM Length corrections
+cnic_num_length_correct <- read_csv("data/rsols_corrections/cnic_length_num_errors_corrections.csv",
+                                    col_types = cols(Correcction = col_character())) %>%
+  rename(cnic_num_length_correction = Correcction) %>%
+  select(key, cnic_num_length_correction)
+
+cleaned_assets <- left_join(cleaned_assets,
+                            cnic_num_length_correct,
+                            by = "key")
+
+# table(cleaned_assets$cnic_num_length_correction, useNA = "always")
+
+with(cleaned_assets,
+     table(!is.na(cnic_not_in_scrutiny_correction), 
+           !is.na(cnic_num_length_correction))
+)
+
+filter(cleaned_assets, !is.na(cnic_not_in_scrutiny_correction), !is.na(cnic_num_length_correction)) %>%
+  select(contains("cnic"))
+
+cleaned_assets <- cleaned_assets %>%
+  mutate(
+    cnic_final = case_when(
+      !is.na(cnic_num_length_correction) ~ cnic_num_length_correction,
+      !is.na(cnic_not_in_scrutiny_correction) ~ cnic_not_in_scrutiny_correction,
+      TRUE ~ cnic
+    )
+  ) %>%
+  mutate_at(vars(cnic_final, cnic_num_length_correction, cnic_not_in_scrutiny_correction),
+            funs(found = !is.na(.),
+                 clean = ifelse(nchar(gsub("[-89]", "", .)) == 0, NA, .)))
+
+# Check if any of the cnics we added overrode existing CNICs from other data sources
+cleaned_assets %>%
+  select(starts_with("cnic")) %>%
+  filter(
+    (cnic_num_length_correction_found  | cnic_not_in_scrutiny_correction_found),
+    (!is.na(cnic_num_length_correction_clean) | !is.na(cnic_not_in_scrutiny_correction_clean)),
+    is.na(cnic_final_clean)
+  ) %>%
+  select(-ends_with("found")) %>%
+  as.data.frame
+# Looks like only one of the right length, and that one isn't in the scrutiny forms, so let's jettison it
+"1540161899967" %in% cleaned_assets$cnic_final_clean
+"1540161899967" %in% scrutiny_list$cnic
+
+cleaned_assets <- cleaned_assets %>%
+  select(-starts_with("cnic_num"),
+         -starts_with("cnic_not_in_scrutiny"),
+         -ends_with("_found"),
+         -cnic,
+         -cnic_final) %>%
+  rename(cnic = cnic_final_clean)
+
+cleaned_assets %>%
+  select(contains("cnic"))
+
+#checking
+cleaned_assets%>%
+  mutate(
+    cnic_length_error=nchar(cnic)!=13,
+    cnic_not_in_scrutiny=!(cnic %in% scrutiny_list$cnic)
+  )%>%
+  {table(.[!is.na(.$cnic),]$cnic_not_in_scrutiny, useNA = "always")}
+
+cleaned_assets%>%
+  mutate(
+    cnic_hai=!is.na(cnic)
+  )%>%
+  {table(.$cnic_hai)}
+# check no merges from duplication
+#table(duplicated(cleaned_assets))
+```
+
+TODO: Correct this text
+Made two types of corrections: num_length and scrutiny_list. The reason of doing the num_length corrections in part 2 is that if we do the other way around, still left with some num_length errors that are overwritten.
+
+The new variable **cnic** is to be treated as the correct cnic version.
+
+There are no length errors in this final version. 
+Despite the not in scrutiny CNIC back-checking, we find that there are 3591 flagged as not in scrutiny, and when we filter out the NAs from these 4316, we are left with **2386** CNICs not found in the scrutiny list. Our *original* number of flags of not_in_scrutiny prior to asking AT for corrections via back-checking was **4068**. The file they sent us was of **3616** cnics. This implies that a lot of these flags were because the candidate was not in the scrutiny list. Your call on whether we should investigate more or not. At the least it would be good to ask for a breakdown of the back-checking, asking if they know how many of the CNICs back-checked needed to be corrected. 
+
+Overall, we have CNICs on 16316 candidates. CNIC is NA for 1205 rows ~ 7.4 percent of total rows.
+
+#### UIDs
+
+Using the file of corrected uids sent by AT, I create a new variable that is the final_uid
+
+```{r}
+# These are the uids originally assigned to the candidates in the results data
+# scraped by Colin
+uids <- read_excel("data/other_data/candidate_uids_complete.xls")
+# However, I assign them new ids as colin changed the underlying data after the ECP
+# updated their website
+res_c <- read_csv("../pakistan_election_results_2018/pk_candidate_data_2018.csv") %>%
+  mutate(id = 1:n())
+# This line checks to make sure the ids we have have not shifted
+if (!all.equal(res_c, read_csv("data/other_data/pk_candidate_data_2018_fixed_ids.csv"))) {
+  stop("Change in results or results ids")
+}
+res_u <- left_join(res_c,
+                   uids,
+                   by = c("constituency_code" = "pa_id",
+                          "candidate_name" = "candidate_name"))
+nrow(uids)
+nrow(res_c)
+sum(uids$uid %in% res_u$uid)
+nrow(res_u)
+nrow(res_c)
+uids %>% filter(pa_id == "NA-46") %>% as.data.frame
+res_u %>% filter(constituency_code == "NA-46") %>%
+  select(constituency_code, candidate_name, uid, candidate_rank) %>%
+  as.data.frame
+# Duplication is due to matching names within constituency, we should just keep the first and last match as that was the original ordering!
+res_u <- res_u %>%
+  group_by(id) %>%
+  filter(n() > 1) %>%
+  select(id, constituency_code, candidate_name, uid, candidate_rank) %>%
+  ungroup() %>%
+  mutate(drop = rep(c(FALSE, TRUE, TRUE, FALSE), n() / 4)) %>%
+  right_join(res_u) %>%
+  filter(!drop | is.na(drop)) %>%
+  select(-drop)
+  
+nrow(res_u)
+nrow(res_c)
+rm(uids, res_c)
+
+dup_uid_correct <- read_csv("data/rsols_corrections/duplicated_uids_corrections.csv") %>%
+  select(key, `Updated UID`) %>%
+  rename(uid_correction = `Updated UID`) %>%
+  mutate(
+    uid_chars = nchar(uid_correction),
+    uid_correction = str_pad(uid_correction, width = 5, side = "left", pad = "0")
+  )
+
+cleaned_assets <- left_join(cleaned_assets, dup_uid_correct, by = "key")
+
+second_uid_correct <- read_xlsx("data/rsols_corrections/uid_correction_second.xlsx") %>%
+  select(key, `Correct UID`) %>%
+  rename(uid_correction_second = `Correct UID`) %>%
+  mutate(
+    uid_chars_second = nchar(uid_correction_second),
+    uid_correction_second = str_pad(uid_correction_second, width = 5, side = "left", pad = "0")
+  )
+
+cleaned_assets <- left_join(cleaned_assets, second_uid_correct, by = "key")
+```
+
+Let's explore what those two uid changes look like.
+
+```{r}
+table(cleaned_assets$uid_correction)
+table(cleaned_assets$uid_correction_second)
+
+with(cleaned_assets, table(!is.na(uid_correction), !is.na(uid_correction_second)))
+
+filter(cleaned_assets, !is.na(uid_correction), !is.na(uid_correction_second)) %>%
+  select(contains("uid"), constituency_code)
+
+filter(cleaned_assets, uid_correction == "-9999") %>%
+  select(contains("uid"), constituency_code)
+
+filter(res_u, constituency_code == "PS-96") %>%
+  select(uid, province)
+# seems we should always prefer uid_correction_second
+```
+
+Now let's merge them in. Now we have to deal with many duplicate UIDs, when there should really be none.
+
+```{r}
+cleaned_assets <- cleaned_assets %>%
+  mutate(uid = ifelse(uid %in% c("99999", "-999"), "-9999", uid)) %>%
+  rename(uid_initial = uid) %>%
+  mutate(uid = case_when(
+    !is.na(uid_correction_second) ~ uid_correction_second,
+    is.na(uid_correction) | uid_correction == "Correct UID" ~ as.character(uid_initial),
+    !is.na(uid_correction) ~ as.character(uid_correction),
+    TRUE ~ as.character(uid_initial)
+  )) %>%
+  select(-uid_correction, -uid_correction_second)
+res_u$found_initially <- res_u$uid %in% cleaned_assets$uid
+
+cleaned_assets_full <- cleaned_assets
+```
+
+Exploring duplicates.
+
+```{r}
+# check for duplicate uids and mark them needing to be resolved
+
+cleaned_assets <- cleaned_assets %>%
+  mutate(constituency_code = ifelse(key == "uuid:b911ce48-85cf-4270-ab09-190f641ed2fe",
+                                    "NA-35",
+                                    constituency_code),
+         uid = case_when(
+           uid == "00041" & constituency_code == "PP-246" ~ "99999",
+           uid %in% c(
+               "01868", "01869", "01870", "01835", "01836", "01826", "01828",
+               "01698", "01699", "01792", "01791", "01790", "01789", "01788",
+               "01700", "01781", "01782", "01783", "01784", "01794", "01795",
+               "01796", "01797", "01798", "01799", "01800", "01801", "01805", "01806",
+               "01807", "01808", paste0("018", 10:21), "01840", "01842", "01843", "01844", "01845",
+               paste0("018", 48:57), paste0("018", 59:64), "01744", "01832", "01833",
+               paste0("018", 22:24)
+             ) ~
+             as.character(as.numeric(uid) - 1),
+           uid == "02324" ~ "02335",
+           uid == "01743" & candidate_name == "Bilal Hussain" ~ "01744",
+           uid == "01871" & candidate_name == "Sameena Huma Meer" ~ "01870",
+           uid == "01837" & candidate_name == "Amjad Ali Asif" ~ "01836",
+           uid == "01827" & candidate_name == "M Kamran Khan" ~ "01826",
+           uid == "01829" & candidate_name == "M Usman Razi Khan" ~ "01828",
+           uid == "04048" ~ "04034",
+           uid == "21035" & candidate_name == "Muneeb Ahmad" ~ "10352",
+           uid == "04659" & candidate_name == "Shoukat Zareen" ~ "04660",
+           uid == "10762" & candidate_name == "Mir Jawad Afsar" ~ "10802",
+           key == "uuid:416eeaaa-bcf1-4ff7-87d0-2ff66068fa40" ~ "10821",
+           key == "uuid:e34eeb2d-f1e7-4af1-aa73-ac5fea030acc" ~ "08773",
+           key == "uuid:2881c391-c69a-4b19-9dba-bd16aba2d308" ~ "10891",
+           key == "uuid:d5ba44ed-f815-46b6-97cc-4a97e1d693c1" ~ "10968",
+           key == "uuid:631fb218-c618-406d-aa8b-bae4087de033" ~ "11125",
+           key == "uuid:1509903d-d088-4ff6-9f7c-1677ab731dba" ~ "11509",
+           key == "uuid:a9830635-b368-4563-a88b-2f1e257907d8" ~ "11533",
+           key == "uuid:5ae33a35-ad79-4eca-8c25-3f48b6ebb8f9" ~ "11540",
+           key == "uuid:3981c2eb-5f47-4a96-99fa-0c2cd4f5a758" ~ "11544",
+           key == "uuid:d716f876-fc71-484a-9b04-bd113dfb9b21" ~ "11554",
+           key == "uuid:cd055a6e-5285-4ae8-bbf2-f235dc13033f" ~ "11655",
+           key == "uuid:f55db341-7893-47e7-99bd-84a41012667a" ~ "05013",
+           key == "uuid:7f3de0be-44c0-4316-a13c-26835672aeb6" ~ "05531",
+           key == "uuid:8a795fb4-f2e4-4122-b4d9-c69a82f93e34" ~ "05608",
+           key == "uuid:b535e156-9797-4d5f-a420-c27254992b9b" ~ "05941",
+           key == "uuid:f3ab974a-5780-4e27-ae1c-24f5fdc33b5a" ~ "10007",
+           key == "uuid:43e7522a-2e20-48ae-8ed1-93b09c95a171" ~ "06318",
+           key == "uuid:d4810176-c5de-4e93-985d-04bc75ecc6fc" ~ "06416",
+           key == "uuid:59919191-14fe-4f18-8420-534dca08887f" ~ "06864",
+           key == "uuid:f324490d-490d-4a5f-bb88-116a1b0a1971" ~ "07854",
+           key == "uuid:5dc7c351-9fd1-4663-83c3-636d5c15ab9b" ~ "08081",
+           key == "uuid:33239735-7f89-42aa-90e5-b04e6f24e4b1" ~ "08117",
+           key == "uuid:c01e1c53-8ac8-4ca3-96af-b733c8667970" ~ "08391",
+           key == "uuid:de14e6d5-120b-4d5c-b53d-9402b977f98e" ~ "08392",
+           key == "uuid:30ea1a9c-13ad-44ee-99f8-e00b6b51cb4c" ~ "11487",
+           key == "uuid:433e4259-48cc-43f6-9631-78dbaff4444e" ~ "11493",
+           key == "uuid:8574eba7-1840-4d5d-852c-03eaf32ed02d" ~ "02869",
+           key == "uuid:b19df50a-a90e-437d-bd4c-3262b217ce01" ~ "02940",
+           key == "uuid:faee6e1f-88fc-4321-8f89-8ce57e484280" ~ "03388",
+           key %in% c(
+             "uuid:9eb4da4a-2e0c-488c-b44c-e2fe822a148d",
+             "uuid:0dacdbea-61b0-406b-affc-53760f2770bc",
+             "uuid:c45b4eb8-df0d-43fc-9ce7-9fe2dee533fd",
+             "uuid:6c0d977f-7e2b-4cbb-ac9c-8e79516c0f17",
+             "uuid:3032acd3-304b-4164-9a7e-d4c395771c7f"
+           ) ~ "-9999",
+           TRUE ~ uid
+          ),
+         uid = str_pad(uid, width = 5, side = "left", pad = "0"),
+         constituency_code = case_when(
+           key == "uuid:09bd51bc-8a64-41a3-bfee-77d54c0a5c50" ~ "PS-25",
+           key == "uuid:de3f7645-7b5e-4f26-a1b5-8bc810578b8c" ~ "NA-218",
+           key == "uuid:009be942-a075-4141-a33c-c87466c15a4f" ~ "PS-64",
+           key == "uuid:739588bf-b767-497e-bcad-9a670292f779" ~ "PB-24",
+           key == "uuid:e8e5444d-bfd5-4246-9724-a3aa3a5ee4dc" ~ "PS-97",
+           key == "uuid:8a795fb4-f2e4-4122-b4d9-c69a82f93e34" ~ "PP-105",
+           key == "uuid:3a2653e3-2575-4e31-b6df-29752d74df66" ~ "PP-243",
+           TRUE ~ constituency_code
+         )) %>%
+  # drop some duplicates!
+  filter(!(key %in% c(
+    "uuid:f4c076be-4ed9-44e3-a3e2-afdabebb3439",
+    "uuid:20d90571-fd3c-4399-ac4c-71e3ebf736de",
+    "uuid:33f6b55b-aa75-4a55-9e95-265b717390a1"
+  ))) %>%
+  group_by(uid) %>%
+  mutate(duplicate_uid = n() > 1 & !is.na(uid) & uid != "-9999") %>%
+  ungroup() 
+
+# check for any duplicate uids
+dup_uids <- cleaned_assets %>%
+  group_by(uid) %>%
+  mutate(n = n()) %>%
+  filter(duplicate_uid & !any(uid_chars[!is.na(uid_chars)] < 5)) %>%
+  arrange(uid) %>%
+  select(key, enum_name, uid, candidate_name, constituency_code, n, entry) %>%
+  mutate(new_and_old = !all(entry == "old") & n > 1,
+         only_one_old_some_new = new_and_old & sum(entry=="old") == 1 & length(unique(constituency_code)) == 1)
+
+# Many are the same person, multiple entries? (NB: even the same person in different constituencies gets a new UID because of how I built them just on the results data)
+dup_uids %>%
+  filter(length(unique(constituency_code)) > 1 | length(unique(candidate_name)) > 1) %>%
+  as.data.frame
+
+# resolve those with only one old and some new data entry waves, all in the same constituency
+old_new_merge <- dup_uids %>%
+  filter(only_one_old_some_new) %>%
+  mutate(uid_dup_resolved = TRUE,
+         uid_dup_notes = ifelse(entry == "old",
+                                "keeper_new_old_dup",
+                                "dropper_new_old_dup"),
+         uid_dup_drop = entry != "old") %>%
+  ungroup() %>%
+  select(key, starts_with("uid_dup"))
+```
+Resolve those in two different constituencies, not with one old and two new.
+```{r}
+# Check those in different constituencies
+two_cons <- dup_uids %>%
+  filter(length(unique(constituency_code)) > 1 & !only_one_old_some_new) %>%
+  select(key, uid, candidate_name, constituency_code, entry) %>%
+  left_join(select(res_u, constituency_code, uid, candidate_name), by = c("uid", "constituency_code"))
+
+uid_found <- two_cons %>%
+  filter(!is.na(candidate_name.y)) # these people we want to keep as is
+uid_notfound <- two_cons %>% 
+  filter(is.na(candidate_name.y)) # these people we need to find a new UID for
+
+# these ones we are looking for name-constituency matches, and their new
+# uids will be appended here
+change_uid <- uid_notfound %>%
+  ungroup() %>%
+  mutate(candidate_name = tolower(candidate_name.x)) %>%
+  rename(uid_old = uid) %>%
+  select(-candidate_name.x, -candidate_name.y) %>%
+  left_join(res_u %>%
+              mutate(candidate_name = tolower(candidate_name)) %>%
+              filter(!found_initially) %>%
+              select(constituency_code, uid, candidate_name),
+            by = c("candidate_name", "constituency_code"))
+
+
+# mark those in the right place as resolved
+correct_uid_merge <- uid_found %>%
+  ungroup() %>%
+  select(key) %>%
+  mutate(uid_dup_resolved = TRUE,
+         uid_dup_notes = "correct_uid",
+         uid_dup_drop = FALSE)
+
+# mark those who I could match on constituency and name as resolved
+cons_matched_uid_merge <- change_uid %>%
+  filter(!is.na(uid)) %>%
+  select(uid, key) %>%
+  mutate(uid_dup_resolved = TRUE,
+         uid_dup_notes = "matched_by_name_constituency_to_previously_unmatched_result_uid",
+         uid_dup_drop = FALSE) %>%
+  rename(uid_dup_new = uid)
+```
+
+Now we have to do some manual work to find those that are still needed and to resolve duplicate UIDs within constituency.
+
+```{r}
+still_needed <- filter(change_uid, is.na(uid))
+table(still_needed$constituency_code, still_needed$entry)
+
+# PK-30 here is actually NA-30
+still_needed %>%
+  filter(constituency_code == "PK-30")
+# 
+# dup_uid <- map_dfr(unique(still_needed$constituency_code), ~ {
+#   m <- ""
+#   ccode <- .x
+#   while (!(m %in% c("y","n", "w"))) {
+#     still_needed %>%
+#       filter(constituency_code == .x) %>%
+#       as.data.frame %>%
+#       print
+#     filter(res_u, constituency_code == ccode) %>%
+#       arrange(uid) %>%
+#       select(constituency_code, candidate_name, uid, found_initially) %>%
+#       as.data.frame %>%
+#       print
+#     m <- readline("Match (y/n/na/w)?")
+#     if (m == "na") {
+#       ccode <- gsub("P[KFSBP]", "NA", ccode)
+#     }
+#   }
+#   if (m == "n") {
+#     data.frame(type = "no_match", constituency_code = .x)
+#   } else if (m == "w") {
+#     data.frame(type = "na_instead", constituency_code = .x)
+#   } else if (m == "y") {
+#     data.frame(type = "a_match", constituency_code = .x)
+#   } else {
+#     NULL
+#   }
+# })
+
+# the below is generated from the above manual checks on 2018-11-01
+dup_uid <- structure(list(type = c("no_match", "no_match", "no_match", "no_match", 
+"no_match", "na_instead", "na_instead", "na_instead", "na_instead", 
+"na_instead", "na_instead", "na_instead", "no_match", "no_match", 
+"a_match", "no_match", "a_match", "a_match", "a_match", "a_match", 
+"no_match", "no_match", "no_match", "a_match", "a_match", "no_match", 
+"no_match", "a_match", "a_match", "a_match", "no_match"), constituency_code = c("NA-120", 
+"PS-49", "PS-91", "NA-138", "NA-161", "PK-29", "PK-30", "PK-31", 
+"PK-32", "PK-33", "PK-34", "PK-35", "NA-34", "PS-54", "PS-50", 
+"PS-48", "PS-92", "PS-93", "PS-59", "PS-67", "PP-142", "PP-157", 
+"PS-64", "PP-128", "PS-52", "PP-61", "PS-63", "PS-55", "PS-116", 
+"PS-51", "PS-53")), row.names = c(NA, -31L), class = "data.frame")
+
+# Duplicate UIDs that were not found, so leave UID as NA but should
+# match CNICs if it is the same person
+not_found <- still_needed %>%
+  filter(constituency_code %in% dup_uid$constituency_code[dup_uid$type == "no_match"])
+
+not_found_merge <- not_found %>%
+    mutate(uid_dup_resolved = TRUE,
+         uid_dup_notes = "not_found_set_uid_NA",
+         uid_dup_drop = FALSE) %>%
+  ungroup() %>%
+  select(key, starts_with("uid_dup"))
+
+# Ones found that just need a manual match
+found <- still_needed %>%
+  filter(constituency_code %in% dup_uid$constituency_code[dup_uid$type == "a_match"])
+
+# check_match <- pmap_dfr(found, function(constituency_code, ...) {
+#   
+#   ret_dat <- data.frame(constituency_code = constituency_code,
+#                         ...)
+#   
+#   print(ret_dat)
+#   val <- constituency_code
+#   filter(res_u, constituency_code == val) %>%
+#     arrange(uid) %>%
+#     select(constituency_code, candidate_name, uid, found_initially) %>%
+#     as.data.frame %>%
+#     print
+# 
+#   m <- readline("correct uid: ")
+#   if (m == "q") stop()
+#   ret_dat$uid_dup_new <- m
+#   ret_dat
+# })
+
+check_match <- structure(list(constituency_code = c("PS-50", "PS-92", "PS-92", 
+"PS-92", "PS-93", "PS-93", "PS-59", "PS-67", "PS-50", "PP-128", 
+"PS-52", "PS-55", "PS-67", "PS-116", "PS-59", "PS-51", "PS-67", 
+"PS-67"), key = c("uuid:a1940237-fd4f-4794-aeba-ca299ec72627", 
+"uuid:ce02537b-8c33-442a-b5d0-2f0e416d8290", "uuid:09d611e2-b0c1-4360-8433-0b6bf2aa54e3", 
+"uuid:e6d2c092-21e9-4b15-8df1-b518209d8700", "uuid:57341afc-e4ec-4b4f-a1dc-507ed4c7827f", 
+"uuid:db60e2fb-6bd3-4c82-90dd-5aa68ba3319e", "uuid:9ef406c4-14a9-415c-9a76-74e8d5b70532", 
+"uuid:57e2b083-c7e3-4f1d-bb89-a0cfd5aa54ba", "uuid:7b6d79d8-20cd-4768-8f30-ec718baf3974", 
+"uuid:29a0db7a-0918-434a-af3f-fc579e949db1", "uuid:a4218b6c-0d12-4901-99e0-9f55dbeb219f", 
+"uuid:bd4d4058-23e2-46d1-9b25-62105cb29e08", "uuid:dc851e8a-2317-45f6-8ffc-29e7c6f23d15", 
+"uuid:b5db77a7-756a-4dbb-b3ec-2f77c4781db6", "uuid:f5a1990a-0e97-4dac-93bd-57e926193b79", 
+"uuid:f8bc615d-5c8b-4562-9b4b-e64a2e7b2e80", "uuid:4151a6a8-4efd-40a2-b51f-1376927ed6f7", 
+"uuid:961a5fbc-fc20-4d15-90c1-b038ac7465ff"), uid_old = c("04440", 
+"05687", "05688", "05692", "05694", "05695", "05859", "06160", 
+"06178", "06968", "07051", "09406", "09406", "09671", "10278", 
+"10298", "10715", "11414"), entry = structure(c(1L, 1L, 1L, 1L, 
+1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L), .Label = "old", class = "factor"), 
+    candidate_name = c("sajjad ahmad", "shafeeq ahmed", "sahid kursheed rana", 
+    "syed muhammad rafiq", "almasazam", "asfag ahmend mangi", 
+    "saeed ahmad", "waseem ahmad", "mukhtar ahmad", "muhammad pervaiz", 
+    "gjulam qadir", "muhammad haroon", "muhammad haroon", "syed anwer shah", 
+    "sarang khan", "ali murad", "raza muhammad", "muhammad ibrahim"
+    ), uid = structure(c(NA_integer_, NA_integer_, NA_integer_, 
+    NA_integer_, NA_integer_, NA_integer_, NA_integer_, NA_integer_, 
+    NA_integer_, NA_integer_, NA_integer_, NA_integer_, NA_integer_, 
+    NA_integer_, NA_integer_, NA_integer_, NA_integer_, NA_integer_
+    ), .Label = character(0), class = "factor"), uid_dup_new = c("10845", 
+    "11515", "11516", "11520", "11522", "11523", "10976", "no_match", 
+    "10841", "05968", "10866", "NA_cand", "no_match", "09871", 
+    "10977", "NA_cand", "11126", "11122")), row.names = c(NA, -18L
+), class = "data.frame")
+check_match
+
+check_cand_merge <- check_match %>%
+    mutate(uid_dup_resolved = TRUE,
+         uid_dup_notes = case_when(
+           uid_dup_new == "no_match" ~ "no_match_found_set_UID_NA",
+           uid_dup_new == "NA_cand" ~ "uid_NA_in_res",
+           TRUE ~ "found_uid"
+         ),
+         uid_dup_drop = FALSE) %>%
+  ungroup() %>%
+  select(key, starts_with("uid_dup"))
+
+# Ones found that are actually MNA candidates
+change_constituency <- still_needed %>%
+  filter(constituency_code %in% dup_uid$constituency_code[dup_uid$type == "na_instead"])
+# seems like most of these were accurately reentered as NA candidates, let's check! They all are now thanks to 
+# the one typo fix above, so we can mark as fixed
+change_constituency[!(change_constituency$uid_old %in% uid_found$uid),]
+
+new_cons_merge <- change_constituency %>%
+    mutate(uid_dup_resolved = TRUE,
+         uid_dup_notes = "old_entries_PK_instead_of_NA",
+         uid_dup_drop = TRUE) %>%
+  ungroup() %>%
+  select(key, starts_with("uid_dup"))
+
+# 6 new rows from fixing uid padding issue!
+done <- bind_rows(
+  not_found_merge, 
+  new_cons_merge,
+  check_cand_merge
+)
+
+need <- still_needed %>%
+  filter(!(key %in% done$key))
+if (nrow(need) != 0) {
+  stop("Still some needed")
+}
+```
+
+Now check those duplicates in one constituency.
+```{r}
+same_cons <- dup_uids %>%
+  filter(length(unique(constituency_code)) == 1 & !only_one_old_some_new) %>%
+  select(key, enum_name, uid, candidate_name, constituency_code, entry)
+same_cons
+
+# within_cons_dup <- map_dfr(unique(same_cons$uid), ~ {
+#   
+#   uid_dat <- filter(same_cons, uid == .x)
+#   
+#   print(uid_dat)
+#   filter(res_u, constituency_code %in% unique(uid_dat$constituency_code)) %>%
+#     arrange(uid) %>%
+#     select(constituency_code, candidate_name, uid, found_initially) %>%
+#     as.data.frame %>%
+#     print
+# 
+#   uid_dat$uid_dup_new <- NA_character_
+#   for (i in seq_len(nrow(uid_dat))) {
+#     m <- readline("correct uid: ")
+#     if (m == "q") {
+#       stop()
+#     } else if (m == "") {
+#       uid_dat$uid_dup_new[i] <- uid_dat$uid
+#     } else if (m == "n"){
+#       uid_dat$uid_dup_new[i] <- "not_found"
+#     } else {
+#       uid_dat$uid_dup_new[i] <- m
+#     }
+#   }
+#   uid_dat
+# })
+#04243 and 04244 have to be distinguished between
+#09326 and 09327
+#09764 and 09763, maybe?
+within_cons_dup <- structure(list(key = c("uuid:e79929a9-6144-4f86-b240-3e27a4db3783", 
+"uuid:24e35aec-90a5-4df2-930c-c0f0fab6a528", "uuid:746b8006-119f-4860-a2c2-3ad9afa8a6d7", 
+"uuid:4988f9d9-04e7-41ea-92d3-f501fb12ad75", "uuid:5aed9e42-bf88-4a24-8461-f8caf820e4fb", 
+"uuid:cda1234c-8605-465a-912a-737a83cb3f1e", "uuid:b4cacdd0-19df-48f1-ac87-c3e338bce9ff", 
+"uuid:4cd895a5-eff3-487f-ab26-73127e4ef681", "uuid:062547f1-5bb9-45b4-942f-6b426df40f7a", 
+"uuid:b6cdead7-1fb8-4413-9513-c36e7f282316", "uuid:dd95cd3d-a950-43f2-93d9-baf687fb9e0b", 
+"uuid:8cfd91c8-2517-4dde-8cac-0ea5fc38c8a8", "uuid:764b53e1-4604-426f-b0b5-c0aa889f94e6", 
+"uuid:ca7e9822-d75c-4b2e-8534-05168e329781", "uuid:0ec8e338-1e55-4456-ad6d-18a8df23ef8e", 
+"uuid:399065a6-69b4-4551-ae09-b7a0b6962a61", "uuid:144bd870-6bfe-4a6a-8d3f-fab9dc30fed9", 
+"uuid:99b3276f-495a-4fbc-9978-9c516af6fba7", "uuid:19bcfda9-4af2-490a-9656-7d143c5315cf", 
+"uuid:9e7d4937-f2d0-4db3-bf0d-941f4e09f2fd", "uuid:69a992aa-1ce6-41d0-ad7a-6ac78a09dedf", 
+"uuid:2e1b66a3-fe1e-4ccf-a46e-70ee464afde7", "uuid:36c73832-c0e1-4365-b205-506a30e6995f", 
+"uuid:be6236ad-3712-48bb-8752-455bc5abc1d2", "uuid:fd81a38f-e71f-401a-935f-e7a1bb28260c", 
+"uuid:82f70958-2c0f-472d-b47f-9cfe4deaac66", "uuid:0ebd7956-48e6-407d-8da6-bcdec782802a", 
+"uuid:c80ff99d-fde6-43d9-b592-9f0f9db36472", "uuid:f67de0fa-5cdd-474b-8f47-f946ccfc22d7", 
+"uuid:1ef57b7a-e5a9-44a6-96ef-59482e3fed77", "uuid:c0905220-7f76-423b-84a8-e2d2e57440d1", 
+"uuid:55b3e243-cfdc-487d-aa33-34ec96779227", "uuid:09547d1a-f37e-4eb7-8d86-84fa1d83a063", 
+"uuid:1f216579-b055-4541-820f-a7b28ea47b63", "uuid:754e322c-e51f-492a-9e3a-1d7fc5a17840", 
+"uuid:929e1d7f-5f41-45fe-a457-99dda58d0ae7", "uuid:afeb5e0f-ba25-44ac-9fa5-7f7d0aea20b3", 
+"uuid:c1e62d09-c6ee-4a73-97fa-6ae93e49c4f1", "uuid:14f33480-deeb-4969-be2b-5a24b01b6546", 
+"uuid:c5126dce-e795-4e9b-9774-1ba436d6f53b", "uuid:93ae491b-b4ba-4f01-9c82-0589c2269e52", 
+"uuid:4bbf4f1f-90e9-4fef-ae64-095d185f2e67", "uuid:c8f954a2-cab2-4b83-ab21-bff7dd63b9dd", 
+"uuid:7ddbe0ce-cf09-4803-ab77-b75b419fa37e", "uuid:95e1e23e-d56b-4d72-b5c6-7bfd85f98323", 
+"uuid:a6becc49-4561-4b71-9d64-8407331708d5", "uuid:6842380d-d7c2-43af-a0f7-9cac0fa0eba4", 
+"uuid:da4815b2-2009-419f-bf9b-89a0d1f32ca3", "uuid:95ce78b0-c4bc-4fc0-8090-c01df62f3e15", 
+"uuid:eeaa6319-35ee-48e5-8aaa-ea2578606563", "uuid:36a22575-03e7-4fd3-bd2d-4e9ec1a9fb08", 
+"uuid:b97057e8-0264-45f7-80cd-66c682886ced", "uuid:0c305dc5-a6de-4fc9-9546-572dd66a2c9c", 
+"uuid:f7c30b44-2253-4274-86fe-f525cf0cb89b", "uuid:79b797e4-94f6-444f-bb82-d56b164fb2f2", 
+"uuid:239c2f5d-0abd-4651-a943-d6080d85369a", "uuid:f94083d9-f933-49f2-bef8-db06eb3249ae", 
+"uuid:90b548a3-9a58-4bb8-bb89-483247492c60", "uuid:50ee75ef-39e1-4609-983f-e34b5086ca8d", 
+"uuid:0bde11f1-197b-416e-9310-8b7600e436c7", "uuid:4ebf0d5e-863c-4d63-b5e4-4d59d1996a3c", 
+"uuid:778a72ce-14e3-49b8-ae2c-ca2c13b77a65", "uuid:a4e765d1-5115-4de9-b9c5-116f6e5255c0", 
+"uuid:daffbd7d-ecdd-4c71-be15-2b9d4c27f452", "uuid:02808c34-bc9b-444f-a39c-6b2893ecfe38", 
+"uuid:40939c1d-47d3-49ca-b08d-996c91c07b01", "uuid:0a6af6cc-e2f0-482d-96f4-c86ea55916eb", 
+"uuid:4bf414b3-7503-447d-b995-cb06848412be", "uuid:367763e0-d43b-47cf-a9a9-1c107d902a36", 
+"uuid:11de2c70-af08-47ff-bb0a-67e52523c6e6", "uuid:0ff31a06-940a-41a1-bc69-778195bc852e", 
+"uuid:d0ed5a66-9854-4578-8570-127e0a1458a3", "uuid:8ab83e71-93e5-48cb-a6c1-c164bb5ecfdf", 
+"uuid:34f33af7-d928-4eed-81ce-c6abf3f206cb", "uuid:90c6b127-3b37-4666-9ffd-2c523efba18f", 
+"uuid:ee177327-a8f9-40cd-ba4f-db3dd249247e", "uuid:71ac1cfa-8670-4a74-b7e8-0d050c5a18f7", 
+"uuid:d6670190-0e5f-48cf-8c7d-65f8b61fd061", "uuid:aff75d29-3dc9-45c3-892f-1c2b45950b05", 
+"uuid:0c2ef92a-f727-48d1-8480-2057640b4d2c", "uuid:6fc43dc8-cafc-4ba8-8cbc-d11ebe2a5b4b", 
+"uuid:5efd3c61-4a49-4552-9e9c-b0c04846a18d", "uuid:6eac9aee-161f-40ac-923c-42fbd2f4ec13", 
+"uuid:80469606-2b9b-4e35-af8b-a534acd9d9c8", "uuid:44feceb8-ecf3-4bbc-ba92-0ca87a5e3a52", 
+"uuid:6fa2d5aa-0c24-4d69-bb9b-23281421d8b5", "uuid:8010874e-6cdb-48b2-a8c8-28dfda30f2dd", 
+"uuid:107a6198-30dc-40a9-ad57-c8719d18cb0a", "uuid:2fdd75eb-92cf-4577-8505-a9ed8fe26939", 
+"uuid:6330aa19-40a8-4157-b525-42ebe993f740", "uuid:fd65243c-6054-4a93-8772-b9a81b7e1c1f", 
+"uuid:1afc8923-8af2-4d50-b7b3-1525b9416cf6", "uuid:53bc7f75-53ea-4f2b-8868-0c936b85293d"
+), enum_name = c(101, 106, 101, 104, 101, 101, 137, 137, 131, 
+131, 107, 107, 105, 105, 105, 105, 105, 104, 104, 117, 117, 128, 
+128, 132, 132, 118, 104, 124, 124, 124, 124, 125, 125, 130, 130, 
+109, 109, 109, 109, 113, 113, 108, 108, 106, 106, 106, 106, 106, 
+106, 106, 106, 106, 106, 144, 144, 777, 143, 131, 131, 126, 126, 
+128, 128, 122, 123, 143, 143, 128, 128, 140, 140, 142, 142, 157, 
+157, 145, 145, 124, 124, 124, 124, 107, 107, 148, 148, 148, 148, 
+114, 114, 114, 114, 114, 114), uid = c("00041", "00041", "00041", 
+"00041", "00041", "00041", "00499", "00499", "00569", "00569", 
+"01009", "01009", "01141", "01141", "01141", "01149", "01149", 
+"01537", "01537", "01543", "01543", "02184", "02184", "02884", 
+"02884", "03089", "03089", "03435", "03435", "04244", "04244", 
+"04558", "04558", "04912", "04912", "04921", "04921", "05039", 
+"05039", "05526", "05526", "05661", "05661", "06338", "06338", 
+"06339", "06339", "06342", "06342", "06343", "06343", "06344", 
+"06344", "06470", "06470", "06504", "06504", "07012", "07012", 
+"07212", "07212", "07489", "07489", "08924", "08924", "08927", 
+"08927", "09050", "09050", "09194", "09194", "09327", "09327", 
+"09557", "09557", "09639", "09639", "09763", "09763", "09820", 
+"09820", "10074", "10074", "10480", "10480", "10574", "10574", 
+"11304", "11304", "11316", "11316", "11366", "11366"), candidate_name = c("Amad U Allah Awan", 
+"Amad Ullah Awan", "Amad Ullha Awan", "Amadeus Ullah Awam", "Amadullah Awan", 
+"Amadullahawan", "Anis Qureshi", "Dawood Anis Qureshi", "Raiz Ul Haq", 
+"Sheraz Zafar", "Muhammad Arshad", "Muhammad Arshad", "Abdul Rehman", 
+"Abdul Rehman", "Dr Mian Abdul Rehman", "Parveen Akhtar", "Parveen Akthar", 
+"Shoaib Alam Khan", "Shoaib Khan", "M Younis Talpur", "Nawab M Yousaf Talpur", 
+"Bismillah Kakar", "Busmillah Kakar", "Sayed Zafar Ali", "Zaib Ur Rahman", 
+"Chaduary Abid Raza", "Chaudhary Abid Raza", "Jala Ahmad Khan", 
+"Jalil Khan", "M Rasool", "M Rasool", "Naseer U Din", "Naseer Ud Din", 
+"Nadeem Khan", "Nadeem Khan", "Maaz Ullah", "Maza Ullah", "Saif Ullah Khan", 
+"Saif Ullah Khan", "Tariq bashir raja", "Safadar ali khan", "Shokt Ali", 
+"Shukat", "Abdul Kareem Khan", "Malik Abdul Karim Khan", "M. Javaid Iqbal", 
+"M. Javed Iqbal Malik", "M. Tahir Iqbal", "Tahir Iqbal", "Tahir Mehmood", 
+"Tahir Mehmood", "Umer Tanveer", "Umer Tanvir", "Khawaja Salma Rafique", 
+"Kjawaja Salma Rafique", "M Mumtaz Khalid", "Muhammad Mumtaz Khalid", 
+"Muhhmad Moeen Watto", "Noor Ul Ameen Watto", "Waheed Asghar", 
+"Waheed Asghar", "Mian Amir Iqbal Shah", "Muhammad Iqbal Shah", 
+"Dr Sohail Zaffar", "Sohail Zafar Cheema", "Amir raza abbasi", 
+"Amjad arbab abbasi", "Sajjid Ahmad", "Sajjid Khan", "Zulafiqar Ali", 
+"Zulfiqar Ali", "Muhammad Arshad", "Muhammad Arshad", "Arsalan Taj", 
+"Dilwer Jackson", "Dilawar Jeckson", "Ghulam Hashim", "Muhammad Asif", 
+"Muhammad Asif", "Sultan Ahmad", "Sultan Ahmad", "Syed Mohammad Abbas Jafri", 
+"Syed Mohammad Abbas Jafri", "Shahnawaz", "Shahnawaz", "Zulfiqar Ali", 
+"Zulfiqar Ali", "Meer Hassan Panhyar", "Mehmood Ur Rehman Halepoto", 
+"Dayo", "Giyanoo Mal", "Dost Muhammad Solangi", "Sadaqat Ali Jatoi"
+), constituency_code = c("PP-246", "PP-246", "PP-246", "PP-246", 
+"PP-246", "PP-246", "NA-138", "NA-138", "NA-142", "NA-142", "NA-180", 
+"NA-180", "NA-191", "NA-191", "NA-191", "NA-191", "NA-191", "NA-22", 
+"NA-22", "NA-220", "NA-220", "NA-263", "NA-263", "NA-53", "NA-53", 
+"NA-71", "NA-71", "PB-1", "PB-1", "PB-5", "PB-5", "PK-27", "PK-27", 
+"PK-55", "PK-55", "PK-56", "PK-56", "PK-66", "PK-66", "PP-10", 
+"PP-10", "PP-107", "PP-107", "PP-15", "PP-15", "PP-15", "PP-15", 
+"PP-15", "PP-15", "PP-15", "PP-15", "PP-15", "PP-15", "PP-157", 
+"PP-157", "PP-159", "PP-159", "PP-186", "PP-186", "PP-200", "PP-200", 
+"PP-224", "PP-224", "PP-59", "PP-59", "PP-6", "PP-6", "PP-67", 
+"PP-67", "PP-77", "PP-77", "PP-89", "PP-89", "PS-102", "PS-102", 
+"PS-106", "PS-106", "PS-111", "PS-111", "PS-113", "PS-113", "PS-125", 
+"PS-125", "PS-30", "PS-30", "PS-35", "PS-35", "PS-80", "PS-80", 
+"PS-81", "PS-81", "PS-84", "PS-84"), entry = c("old", "old", 
+"old", "old", "old", "old", "old", "old", "old", "old", "old", 
+"old", "old", "old", "old", "old", "old", "old", "old", "old", 
+"old", "old", "old", "old", "old", "old", "old", "old", "old", 
+"old", "old", "old", "old", "old", "old", "old", "old", "old", 
+"old", "new", "new", "old", "old", "old", "old", "old", "old", 
+"old", "old", "old", "old", "old", "old", "old", "old", "old", 
+"old", "old", "old", "old", "old", "old", "old", "old", "old", 
+"new", "new", "old", "old", "old", "old", "old", "old", "old", 
+"old", "old", "old", "old", "old", "old", "old", "old", "old", 
+"old", "old", "old", "old", "new", "new", "new", "new", "new", 
+"new"), uid_dup_new = c("not_found", "not_found", "not_found", 
+"not_found", "not_found", "not_found", "00499", "00499", "00569", 
+"00570", "01009", "01009", "01141", "01141", "01141", "01149", 
+"01149", "01537", "01537", "not_found", "01543", "02184", "02184", 
+"02883", "02884", "03089", "03089", "03435", "03435", "04243", 
+"04244", "04558", "04558", "04912", "04912", "04921", "04921", 
+"05039", "05039", "05527", "05526", "05661", "05661", "06338", 
+"06338", "06339", "06339", "06342", "06342", "06343", "06343", 
+"06344", "06344", "06470", "06470", "06504", "06504", "07012", 
+"07014", "07212", "07212", "07489", "07489", "08924", "08924", 
+"08927", "08927", "09050", "09050", "09194", "09194", "09326", 
+"09327", "09556", "09557", "09639", "09640", "09763", "09763", 
+"09820", "09820", "10074", "10074", "10480", "10480", "10574", 
+"10574", "11305", "11304", "11315", "11316", "11356", "11366"
+)), row.names = c(NA, -93L), class = c("grouped_df", "tbl_df", 
+"tbl", "data.frame"), vars = "uid", indices = list(0:5, 6:7, 
+    8:9, 10:11, 12:14, 15:16, 17:18, 19:20, 21:22, 23:24, 25:26, 
+    27:28, 29:30, 31:32, 33:34, 35:36, 37:38, 39:40, 41:42, 43:44, 
+    45:46, 47:48, 49:50, 51:52, 53:54, 55:56, 57:58, 59:60, 61:62, 
+    63:64, 65:66, 67:68, 69:70, 71:72, 73:74, 75:76, 77:78, 79:80, 
+    81:82, 83:84, 85:86, 87:88, 89:90, 91:92), group_sizes = c(6L, 
+2L, 2L, 2L, 3L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 
+2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 
+2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L, 2L), biggest_group_size = 6L, labels = structure(list(
+    uid = c("00041", "00499", "00569", "01009", "01141", "01149", 
+    "01537", "01543", "02184", "02884", "03089", "03435", "04244", 
+    "04558", "04912", "04921", "05039", "05526", "05661", "06338", 
+    "06339", "06342", "06343", "06344", "06470", "06504", "07012", 
+    "07212", "07489", "08924", "08927", "09050", "09194", "09327", 
+    "09557", "09639", "09763", "09820", "10074", "10480", "10574", 
+    "11304", "11316", "11366")), row.names = c(NA, -44L), class = "data.frame", vars = "uid"))
+
+if (nrow(within_cons_dup) != nrow(same_cons)) {
+  stop("new same cons dupes")
+}
+table(within_cons_dup$uid_dup_new)
+within_cons_dup_merge <- within_cons_dup %>%
+    mutate(uid_dup_resolved = TRUE,
+         uid_dup_notes = case_when(
+           uid_dup_new == "not_found" ~ "no_match_in_constituency_duplicate",
+           TRUE ~ "found_uid"
+         ),
+         uid_dup_drop = uid_dup_new == "not_found") %>%
+  ungroup() %>%
+  select(key, starts_with("uid_dup"))
+# TODO: figure out NAs in res from uid merge
+# TODO: handle these appropriately!
+```
+
+```{r}
+# Merging in what to do
+clean_uids <- bind_rows(
+  old_new_merge,
+  correct_uid_merge,
+  cons_matched_uid_merge,
+  not_found_merge,
+  new_cons_merge,
+  check_cand_merge,
+  within_cons_dup_merge
+)
+
+if (nrow(clean_uids) != 421) {
+  stop("dupes number changed")
+}
+if (nrow(clean_uids) != nrow(dup_uids)) {
+  stop("new dupes!")
+}
+table(duplicated(clean_uids$key))
+
+clean_uids %>%
+  filter(!uid_dup_drop) %>%
+  select(uid_dup_new, uid_dup_notes)  %>%
+  as.data.frame
+
+table(clean_uids$uid_dup_notes[!clean_uids$uid_dup_drop])
+# Drop duplicates for dropping!
+cleaned_assets <- cleaned_assets %>%
+  left_join(clean_uids) %>%
+  filter(!uid_dup_drop | is.na(uid_dup_drop)) %>%
+  mutate(uid_before_duplicate_correction = uid) %>%
+  mutate(uid = case_when(
+    uid_dup_notes %in% c("keeper_new_old_dup", "correct_uid") ~ uid,
+    grepl("set_uid_na", tolower(uid_dup_notes)) ~ "-9999",
+    uid_dup_notes == "uid_NA_in_res" ~ NA_character_,
+    uid_dup_notes %in% c(
+      "matched_by_name_constituency_to_previously_unmatched_result_uid",
+      "found_uid"
+      ) ~ uid_dup_new,
+    TRUE ~ uid
+  ))
+  
+
+table(cleaned_assets$duplicate_uid, cleaned_assets$uid_dup_resolved)
+cleaned_assets$uid
+
+# =======
+# BEGIN OLD CODE
+# =======
+# cleaned_assets <- cleaned_assets %>%
+#   ungroup() %>%
+#   left_join(change_uid %>%
+#               filter(!is.na(uid)) %>%
+#               select(uid, key) %>%
+#               mutate(uid_dup_resolved = TRUE,
+#                      uid_dup_notes = "matched_by_name_constituency_to_previously_unmatched_result_uid"),
+#             by = "key",
+#             suffix = c("", "_new")) %>%
+#   mutate(uid = ifelse(is.na(uid_new), uid, uid_new))
+  
+# Now we are going to remove some duplicated uid rows that are unnecessary
+# cleaned_assets <- cleaned_assets %>%
+#   group_by(uid) %>%
+#   mutate(remove = case_when(
+#     uid == "-9999" | is.na(uid) ~ FALSE,
+#     n() > 1 & any(entry == "new") & entry == "old" ~ TRUE,
+#     TRUE ~ FALSE
+#   ))
+
+
+not_found
+
+cleaned_assets %>%
+  filter(constituency_code == "PK-30") %>%
+  select(1:10)
+
+
+filter(res_u, constituency_code == "PS-67") %>%
+  arrange(uid) %>%
+  select(constituency_code, candidate_name, uid, found_initially)
+
+# What about those duplicates in the same constituency?å
+dup_uids %>%
+  filter(length(unique(constituency_code)) > 1 | length(unique(candidate_name)) > 1) %>%
+  as.data.frame
+# some are spelling discrepancies, some are the same uid in different constituencies!
+# there seems to be a double entry of the PK and NA rows!
+# TODO: For these see which columns are different!
+filter(cleaned_assets, uid == "02371") %>%
+  select(entry, contains("year_income"), starts_with("intern")) %>% as.data.frame()
+filter(cleaned_assets, uid == "02371") %>%
+  summarize_all(funs(diff = length(unique(.))>1)) %>%
+  select_if(. == TRUE)
+filter(cleaned_assets, uid == "02448") %>%
+  select(entry, 1:10,contains("year_income"), starts_with("intern")) %>% as.data.frame()
+
+# if old and new, for now just take new
+# =======
+# END OLD CODE
+# =======
+
+dup_uids$uid
+clean_uids
+# TODO: figure out data quality across old and new
+
+table(duplicated(cleaned_assets))
+table(cleaned_assets$remove)
+
+table(new_assets$cons_type, new_assets$const_number)
+```
+
+```{r}
+# TODO copy rows to candidates in multiple locations if they are in the data somewhere but missing in another constituency
+```
+
+Check for missing members in the results data.
+
+```{r}
+# Confirm all remaining dupes are same person within constituency
+# and entry time, for now just pick the first one by `key`
+# TODO: resolve duplicate data quality better
+remaining_dups <- cleaned_assets %>%
+  group_by(uid) %>%
+  mutate(n = n()) %>%
+  filter(!is.na(uid) & uid != "-9999") %>%
+  filter(n > 1) %>%
+  select(uid, n, constituency_code, entry)
+
+# Check whether there are any easily solvable duplicates that were
+# duplicated across entry waves ("new" and "old")
+remaining_dups %>%
+  mutate(duplicated = length(unique(paste0(constituency_code, entry))) == 1) %>%
+  filter(!duplicated)
+# None as of 2011-11-26
+
+remaining_dups %>%
+  summarize() %>%
+  nrow
+nrow(remaining_dups)
+
+n_to_delete <- nrow(remaining_dups) - nrow(summarize(remaining_dups))
+n_to_delete
+
+orig_asset_n <- nrow(cleaned_assets)
+cleaned_assets <- cleaned_assets %>%
+  arrange(uid, key) %>%
+  group_by(uid) %>%
+  mutate(keep_uid_dup = case_when(
+    n() == 1 | is.na(uid) | uid == "-9999" ~ TRUE,
+    TRUE ~ !duplicated(paste0(constituency_code, entry)) # keeps only first row
+  )) %>%
+  filter(keep_uid_dup) %>%
+  select(-keep_uid_dup) %>%
+  mutate(asset_data = 1)
+
+if(nrow(cleaned_assets) + n_to_delete != orig_asset_n) {
+  stop("not right N deleted")
+}
+
+# any dupes left?
+cleaned_assets %>%
+  group_by(uid) %>%
+  mutate(n = n()) %>%
+  filter(!is.na(uid) & uid != "-9999") %>%
+  filter(n > 1) %>%
+  select(uid, n, constituency_code, entry)
+# should be no
+
+filter(cleaned_assets, is.na(uid)) %>%
+  select(key, uid, uid_initial, starts_with("uid_dup"))
+```
+
+Additional matching!
+
+```{r}
+constituency_codes <- paste0(cleaned_assets$type_seat,
+                             "-",
+                             cleaned_assets$const_number)
+cons_ids <- c(
+  paste0("NA-", 1:272),
+  paste0("PP-", 1:297),
+  paste0("PB-", 1:51),
+  paste0("PK-", 1:99),
+  paste0("PS-", 1:130)
+)
+missing_constituencies <- setdiff(cons_ids, constituency_codes)
+
+# Get those unmatched in results by UID
+res_unmatched <- res_u %>%
+  select(id, constituency_code, candidate_name, candidate_party, candidate_rank, uid, found_initially) %>%
+  left_join(
+    cleaned_assets %>%
+      filter(uid != "-9999" & uid != "-999", !is.na(uid)) %>%
+      mutate(asset_data = 1) %>%
+      select(uid, asset_data)
+  ) %>%
+  mutate(missing_constituencies = constituency_code %in% missing_constituencies) %>%
+  filter(is.na(asset_data)) %>%
+  select(-asset_data)
+
+# Attempt match by constituency-candidate
+res_names <- res_unmatched %>%
+  mutate(candidate_name_lower = gsub(" ", "", tolower(candidate_name))) %>%
+  left_join(cleaned_assets %>%
+              ungroup() %>%
+              mutate(candidate_name_lower = gsub(" ", "", tolower(candidate_name)),
+                     uid_asset = uid) %>%
+              select(key, constituency_code, candidate_name_lower, asset_data, uid_asset, entry),
+            by = c("constituency_code", "candidate_name_lower"))
+
+# People duplicated in this merge
+if (nrow(res_names) != nrow(res_unmatched)) {
+  stop("Some names duplicated in merge")
+}
+
+table(res_names$uid_asset>0) # 332 had missing uids in the asset data, now matched on constituency-name
+# Those who we should have matched before (i.e. they have UIDs in the asset data but were
+# only matched by name and constituency now)
+res_name_errs <- res_names %>%
+  filter(uid_asset > 0) %>%
+  as.data.frame
+# 3 are NA in the result UID (new results after UIDs were generated)
+res_name_errs %>%
+  select(candidate_name, uid, uid_asset) %>%
+  as.data.frame
+
+# Many seem like simple transposition errors. Let's take them case by case!
+# name_match_asset_uid <- map_dfr(seq_len(nrow(res_name_errs)), ~ {
+# 
+#   uid_err <- res_name_errs$uid[.x]
+#   uid_asset_err <- res_name_errs$uid_asset[.x]
+#   print("uid_err")
+#   print(uid_err)
+#   print("uid_asset_err")
+#   print(uid_asset_err)
+#   res_u %>%
+#     filter(uid %in% c(uid_err, uid_asset_err)) %>%
+#     select(constituency_code, candidate_name, candidate_rank, uid, found_initially) %>%
+#     as.data.frame %>%
+#     print
+# 
+#   filter(cleaned_assets, uid %in% c(uid_err, uid_asset_err)) %>%
+#     select(constituency_code, candidate_name, uid) %>%
+#     as.data.frame %>%
+#     print
+# 
+#   dat <- data.frame(
+#     key = res_name_errs$key[.x],
+#     stringsAsFactors = FALSE
+#   )
+#   m <- readline("correct uid: ")
+#   if (m == "q") {
+#     stop()
+#   } else if (m == "m") {
+#     dat$uid_asset_correct_name_match <- "uid_two_constituency_candidate"
+#   } else if (m == "n"){
+#     dat$uid_asset_correct_name_match <- "do_not_match"
+#   } else if (m == "md") {
+#     dat$uid_asset_correct_name_match <- "replace_error"
+#   } else {
+#     dat$uid_asset_correct_name_match <- m
+#   }
+#   dat
+# })
+name_match_asset_uid <- structure(list(key = c("uuid:b98d1a6d-f55f-4571-a160-8d552804819c", 
+"uuid:156d859f-621e-4975-8869-537f7670b72c", "uuid:8422567d-2464-43d5-8d96-291bd59ac23b", 
+"uuid:9daba778-d30b-4945-a0cf-b32777a29f5d", "uuid:c60bd7ed-b9d2-4d74-83bd-16d33d7f12a5", 
+"uuid:b78ba864-d55b-459c-921d-17ea56a46e86", "uuid:8391ddc1-cf99-4fc7-906a-9d2b0017df74", 
+"uuid:0d42b7c4-7007-445f-91ae-021efdbcf71d", "uuid:5f3039fe-df2e-4d7a-84ca-b7013c7dde0b", 
+"uuid:e53c1d32-bfcd-4711-afec-867359ac0af9", "uuid:d9f13a7e-4dfc-4b66-b020-d67e5f22b8b1", 
+"uuid:5a1d8f9c-fa57-4c34-aaf9-cdc5294db852", "uuid:74dd66da-f5a9-447e-a91a-a97ff89a977a", 
+"uuid:416eeaaa-bcf1-4ff7-87d0-2ff66068fa40", "uuid:91abdba6-2b65-46aa-939b-feaf1551e5e5", 
+"uuid:33fd0756-00d2-4378-93b0-fbeccdf380a0", "uuid:a4103966-b7a0-4dcc-9bfe-b04f090deb6b", 
+"uuid:bd59db1c-76b5-478f-b505-ce2d42387872", "uuid:be19fb08-dd64-43cd-8650-233c1c648447", 
+"uuid:269b4d89-2fd7-44d9-b7e8-05807a5e1e1a", "uuid:2935fc09-7b28-445d-9d05-39f58d3107cf", 
+"uuid:22c5aaf5-d96c-4dda-b82f-bafc63f4c9fc", "uuid:e5480b19-8bfa-4f02-9056-d3cdc5669b64", 
+"uuid:7ce6dc32-3978-4808-9f25-561cdbeac310", "uuid:d17bfb41-db7b-4fe8-88af-ee16a78d5487", 
+"uuid:5876aad5-b711-48df-84d1-423d736ebdf8", "uuid:d5a66bd7-1ed3-411f-8ea4-25526b3f345a", 
+"uuid:4bd033e6-570e-43b9-bb8a-48ccf997bb71", "uuid:6bdaa21b-c75f-4eff-be11-4bca9021c1e0", 
+"uuid:0f44c6a4-da23-48a6-918d-cd9676d66985", "uuid:7da45821-265a-4fae-adbf-368af705504e", 
+"uuid:e64541f5-3c7a-4cec-821c-3c80325c6ae6", "uuid:77118f6a-1d17-45f2-9697-a51aa9dfe1a2"
+), uid_asset_correct_name_match = c("do_not_match", "replace_error", 
+"replace_error", "uid_two_constituency_candidate", "uid_two_constituency_candidate", 
+"replace_error", "do_not_match", "replace_error", "replace_error", 
+"replace_error", "replace_error", "replace_error", "replace_error", 
+"do_not_match", "replace_error", "replace_error", "replace_error", 
+"replace_error", "replace_error", "replace_error", "replace_error", 
+"replace_error", "replace_error", "replace_error", "replace_error", 
+"replace_error", "replace_error", "replace_error", "do_not_match", 
+"replace_error", "replace_error", "uid_two_constituency_candidate", 
+"replace_error")), row.names = c(NA, -33L), class = "data.frame")
+
+# one fewer resolved, so no worries
+res_name_errs <- res_name_errs %>%
+  left_join(name_match_asset_uid)
+
+
+# Fix UIDs after name merging
+cleaned_assets <- cleaned_assets %>%
+  left_join(
+    res_name_errs %>%
+      select(key, uid, uid_asset_correct_name_match) %>%
+      rename(uid_name_asset = uid)
+  ) %>%
+  ungroup() %>%
+  mutate(
+    uid = case_when(
+      uid_asset_correct_name_match == "replace_error" & !is.na(uid_asset_correct_name_match) ~ uid_name_asset,
+      key == "uuid:614e74fc-ce76-40b8-b943-0d570e161106" ~ "02322",
+      key == "uuid:55503095-747f-43e4-9905-4b8f3a2a091d" ~ "01698",
+      TRUE ~ uid
+    )
+  )
+      
+# Now some old matches that were wrong were dropped, so redo matching on uid
+res_uid_matched <- res_u %>%
+  select(id, constituency_code, candidate_name, candidate_party, candidate_rank, uid, found_initially) %>%
+  left_join(
+    cleaned_assets %>%
+      filter(uid != "-9999" & uid != "-999" & !is.na(uid)) %>%
+      mutate(asset_data = 1) %>%
+      select(uid, key, asset_data)
+  ) %>%
+  mutate(missing_constituencies = constituency_code %in% missing_constituencies)
+
+res_unmatched_2 <- res_uid_matched %>%
+  filter(is.na(asset_data)) %>%
+  select(-asset_data, -key)
+
+new_uids <- setdiff(res_unmatched_2$uid, res_unmatched$uid)
+
+length(new_uids)
+
+res_names_2 <- res_unmatched_2 %>%
+  mutate(candidate_name_lower = gsub(" ", "", tolower(candidate_name))) %>%
+  left_join(cleaned_assets %>%
+              ungroup() %>%
+              mutate(candidate_name_lower = gsub(" ", "", tolower(candidate_name)),
+                     uid_asset = uid) %>%
+              select(key, constituency_code, candidate_name_lower, asset_data, uid_asset, entry),
+            by = c("constituency_code", "candidate_name_lower"))
+
+if (nrow(res_names_2) != nrow(res_unmatched_2)) {
+  stop("Some names duplicated in merge")
+}
+res_name_errs_2 <- res_names_2 %>%
+  filter(uid_asset > 0) %>%
+  select(key, constituency_code, candidate_name, starts_with("uid")) 
+
+res_name_errs_2 %>%
+  as.data.frame
+# all of these we have already resolved
+res_name_errs %>%
+  filter(uid_asset_correct_name_match != "replace_error")
+# TODO drop those that are do_not_match from name merge
+
+res_unmatched_still <- res_names_2 %>%
+  filter(is.na(asset_data) | id %in% res_name_errs$id[res_name_errs$uid_asset_correct_name_match == "do_not_match"]) %>%
+  filter(!missing_constituencies)
+```
+
+```{r}
+# Fuzzy name match
+matches <- map(setdiff(res_unmatched_still$constituency_code,
+                       gsub("\\.csv", "", list.files("data/manual_fuzzy_match"))),
+    ~ {
+      print(sprintf("CONSTITUENCY: %s", .x))
+      res_cons <- res_unmatched_still %>%
+        filter(constituency_code == .x)
+      ass_cons <- cleaned_assets %>%
+        filter(constituency_code == .x) %>%
+        select(father_name,constituency_code, key, candidate_name,  uid) %>%
+        mutate(uid_fuzzy_match = NA)
+      
+      
+      distmat <- stringdist::stringdistmatrix(
+        tolower(gsub(" ", "", ass_cons$candidate_name)),
+        res_cons$candidate_name_lower
+      )
+      
+      
+      
+      out_dat <- map_dfr(seq_len(ncol(distmat)), ~ {
+        ass_cons_i <- ass_cons %>%
+          mutate(strdist = distmat[, .x]) %>%
+          arrange(strdist) 
+        
+        print(res_cons[.x, c("candidate_name", "uid", "candidate_rank")])
+        
+        ass_cons_i %>%
+          select(-key, constituency_code) %>%
+          as.data.frame %>%
+          print
+        
+        m <- readline("which_row? ")
+        rowd <- data.frame(
+            id = res_cons$id[.x],
+            uid = res_cons$uid[.x],
+            candidate_name = res_cons$candidate_name[.x],
+            key = NA,
+            matched_name = NA,
+            stringsAsFactors = FALSE
+          )
+        if (m == "q") {
+          stop("")
+        } else if (m == "") {
+          rowd$key <- NA
+          rowd$matched_name <- NA
+        } else {
+          rowd$key <- ass_cons_i$key[as.integer(m)]
+          rowd$matched_name <- ass_cons_i$candidate_name[as.integer(m)]
+        }
+        rowd
+      })
+
+      write_csv(
+        out_dat,
+        path = sprintf("data/manual_fuzzy_match/%s.csv", .x)
+      )
+    }
+)
+
+# GO THROUGH TXT provinces
+cccheck <- "PS-114"
+filter(res_u, constituency_code == cccheck) %>%
+  select(id, constituency_code, uid, candidate_rank, candidate_name, found_initially) %>%
+  arrange(uid) %>%
+  as.data.frame
+filter(cleaned_assets, constituency_code == cccheck) %>%
+  select(enum_name, constituency_code, uid, candidate_name, father_name, key) %>%
+  arrange(uid) %>%
+  as.data.frame
+read_csv(sprintf("data/manual_fuzzy_match/%s.csv", cccheck))
+
+# filter(res_u, constituency_code %in% c("PK-64", "PK-63")) %>%
+#   select(id, constituency_code, uid, candidate_rank, candidate_name, candidate_party, found_initially) %>%
+#   arrange(uid) %>%
+#   as.data.frame
+# filter(cleaned_assets, constituency_code %in% c("PK-64", "PK-63")) %>%
+#   select(enum_name, constituency_code, uid, candidate_name, father_name, key) %>%
+#   arrange(uid) %>%
+#   as.data.frame
+# 
+# filter(res_u, uid %in% c("28390", "08891", "08392", "08391") ) %>%
+#   select(id, constituency_code, uid, candidate_rank, candidate_name, candidate_party, found_initially) %>%
+#   arrange(uid) %>%
+#   as.data.frame
+# 
+# filter(cleaned_assets,uid %in% c("28390", "08891", "08392", "08391")) %>%
+#   select(enum_name, constituency_code, uid, candidate_name, father_name, key) %>%
+#   arrange(uid) %>%
+#   as.data.frame
+# Kiran Aleem Khan in NA-129 is son of Abdul Aleem Khan, who got second in NA-129
+# Balash Ahmad Junejo in NA-201 is son of Khurshee Ahmad Junejo, who got first
+# id 2598 had name change, should have uid 01491, done in file
+# id 2633 had name change, should have uid 01550, done in file
+# several in NA223, 231
+# leave mhd arshad 246 as is
+
+# uid 00984 should have NA-179 in assets instead of NA-180
+# uid 02112 should have NA-259 in assets instead of NA-246
+# TODO check numbers make sense within constituency
+# TODO look for name matches across consitutency (imran khan)
+```
+
+```{r}
+uid_dupes <- cleaned_assets %>%
+  filter(!is.na(uid), uid > 0) %>%
+  group_by(uid) %>%
+  summarize(n = n())
+table(uid_dupes$n)
+table(duplicated(res_u$id))
+
+found_uid_data <- res_uid_matched %>%
+  filter(asset_data == 1) %>%
+  select(id, key) %>%
+  mutate(match = "uid")
+  
+found_cons_names_data <- res_unmatched_2 %>%
+  mutate(candidate_name_lower = gsub(" ", "", tolower(candidate_name))) %>%
+  left_join(cleaned_assets %>%
+              ungroup() %>%
+              filter(uid < 0 | is.na(uid)) %>%
+              mutate(candidate_name_lower = gsub(" ", "", tolower(candidate_name)),
+                     uid_asset = uid) %>%
+              select(key, constituency_code, candidate_name_lower, asset_data, uid_asset, entry),
+            by = c("constituency_code", "candidate_name_lower")) %>%
+  filter(asset_data == 1) %>%
+  select(id, key) %>%
+  mutate(match = "cons_name")
+
+found_fuzzy_data <- map_dfr(
+  list.files("data/manual_fuzzy_match", full.names = TRUE),
+  ~ read_csv(file = .x, col_types = cols(uid = col_character()))
+) %>%
+  filter(!is.na(key)) %>%
+  select(id, key) %>%
+  mutate(match = "fuzzy")
+
+found_key <- bind_rows(
+  found_uid_data,
+  found_cons_names_data,
+  found_fuzzy_data
+)
+
+dup_keys <- found_key %>%
+  group_by(key) %>%
+  mutate(n_key = n()) %>%
+  ungroup() %>%
+  group_by(id) %>%
+  mutate(n_id = n()) %>%
+  filter(n_id > 1 | n_key > 1) %>%
+  arrange(key)
+dup_keys
+
+table(duplicated(found_key$id))
+table(duplicated(found_key$key))
+table(duplicated(found_uid_data$id))
+table(duplicated(found_uid_data$key))
+table(duplicated(found_cons_names_data$id))
+table(duplicated(found_cons_names_data$key))
+table(duplicated(found_fuzzy_data$id))
+table(duplicated(found_fuzzy_data$key))
+```
+
+```{r}
+res_missing_names <- res_u %>%
+  filter(!(id %in% found_key$id)) %>%
+  group_by(candidate_name) %>%
+  summarize(n = n(), 
+            avg_rank = mean(candidate_rank),
+            best_rank = min(candidate_rank)) %>%
+  filter(n > 1) %>%
+  arrange(best_rank, n)
+res_missing_names %>% as.data.frame
+
+filter(res_u, candidate_name == "Sardar Sanaullah Zehri")
+found_key %>%
+  filter(id %in% res_u$id[res_u$candidate_name == "Sardar Sanaullah Zehri"])
+
+filter(res_u, candidate_name == "")
+multiple_constituencies <- bind_rows(
+  data_frame( # Mian Muhammad Shahbaz Sharif
+    id = c(23, 9973, 1632),
+    key = "uuid:317d65de-b7d7-423a-856e-93e051b09f2a"
+  ),
+  data_frame( # Imran Ahmed Khan Niazi, select first row with more complete data
+    id = c(731, 1225, 1617),
+    key = "uuid:b9e1b37a-a0fb-4251-8685-3877b009b07d"
+  )
+)
+
+
+all_keys <- bind_rows(
+  found_key,
+  multiple_constituencies
+)
+
+table(duplicated(all_keys$id))
+
+res_total <- left_join(res_u, all_keys) %>%
+  mutate(asset_found = !is.na(key))
+
+with(res_total, table(asset_found, candidate_rank))
+
+# unmatched keys distmatrix winners
+unmatched_winners <- res_total %>%
+  filter(!asset_found & candidate_rank == 2)
+
+cleaned_assets$matched <- cleaned_assets$key %in% all_keys$key
+
+str_dist <- stringdist::stringdistmatrix(
+  gsub(" ", "", tolower(unmatched_winners$candidate_name)),
+  gsub(" ", "", tolower(cleaned_assets$candidate_name))
+)
+dim(str_dist)
+# 
+# out_dat <- map_dfr(seq_len(nrow(str_dist)), ~ {
+#   if (unmatched_winners$id[.x] %in% 
+#         gsub("\\.csv", "", list.files("data/manual_rank_match")) |
+#       unmatched_winners$id[.x] %in%
+#       gsub("\\.csv", "", list.files("data/manual_rank_unmatch"))
+#       ) {
+#     return(NULL)
+#   }
+#   cleaned_assets_i <- cleaned_assets %>%
+#     mutate(strdist = str_dist[.x, ]) %>%
+#     arrange(strdist) %>%
+#     filter(strdist < 4)
+#   
+#   
+#   print(unmatched_winners[.x, c("id", "constituency_code", "candidate_name", "uid", "candidate_rank")])
+#   
+#   cleaned_assets_i %>%
+#     select(matched, candidate_name, strdist, constituency_code, father_name, uid) %>%
+#     as.data.frame %>%
+#     print
+#   
+#   m <- readline("which_row? ")
+#   rowd <- data.frame(
+#       id = unmatched_winners$id[.x],
+#       uid = unmatched_winners$uid[.x],
+#       candidate_name = unmatched_winners$candidate_name[.x],
+#       key = NA,
+#       matched_name = NA,
+#       stringsAsFactors = FALSE
+#     )
+#   if (m == "q") {
+#     stop("")
+#   } else if (m == "") {
+#     rowd$key <- NA
+#     rowd$matched_name <- NA
+#     write_csv(
+#       rowd,
+#       path = sprintf("data/manual_rank_unmatch/%s.csv", unmatched_winners$id[.x])
+#     )
+#   } else {
+#     rowd$key <- cleaned_assets_i$key[as.integer(m)]
+#     rowd$matched_name <- cleaned_assets_i$candidate_name[as.integer(m)]
+#     write_csv(
+#       rowd,
+#       path = sprintf("data/manual_rank_match/%s.csv", unmatched_winners$id[.x])
+#     )
+#   }
+# 
+# })
+
+other_string_matches <- map_dfr(
+  list.files("data/manual_rank_match", full.names = TRUE),
+  ~ read_csv(file = .x, col_types = cols(uid = col_character()))
+) %>%
+  filter(!is.na(key)) %>%
+  select(id, key) %>%
+  mutate(match = "fuzzy_rank")
+
+matched_keys <- bind_rows(
+  all_keys,
+  other_string_matches
+)
+
+write_csv(left_join(res_u, matched_keys), "data/pk18_results_with_matched_keys.csv")
+write_csv(cleaned_assets, "analysis/data_cleaning/01_assets.csv")
+
+```

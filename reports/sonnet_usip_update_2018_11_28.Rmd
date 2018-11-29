@@ -1,0 +1,168 @@
+---
+title: "Pakistani Candidate Asset Declaration Data - Progress and Update"
+author: "Luke Sonnet"
+date: "11/28/2018"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.width = 4.5, fig.height = 3, fig.align = "center")
+```
+
+This report outlines the goal of collecting data on Pakistani candidates, current progress on data entry and cleaning, and what can be expected in the final dataset in terms of the candidates included and the covariates available.
+
+#### Introduction
+
+In the run up to the 2018 General Elections in Pakistan, all prospective candidates must submit several forms to be approved as candidates in the general elections. Two of these forms, a candidate affidavit form and a statement of assets and liabilities were released by the Election Commission of Pakistan (ECP) in late June, 2018, just under a month before the elections.
+
+These forms contain a rich set of data on self-declared candidate wealth, tax payments, foreign holdings, outstanding criminal charges, education, occupation, payments to and from political parties, and more. Every candidate is supposed to submit these documents. The central problem with these data is that they need not be released by the ECP, and thus there are gaps in which candidates/constituencies are covered, and that the data released are of questionable quality (e.g. some uploads are photographs of hand-written PDFs).
+
+USIP, in a continued effort to release high-quality data around elections in Central and South Asia, has funded an effort to enter this data rigorously, and clean and prepare it so that it can be merged with other important datasets, such as the election results and the official tax payments reported by the tax authority of Pakistan.
+
+#### Current status
+
+The first wave of manual data entry by Research Solutions, a contracted firm based in Lahore, Pakistan, with experience working with survey and administrative economic and electoral data, was completed in September of 2018. In the ensuing months, I have gone back and forth with Research Solutions, asking them to reenter certain data, and to address certain forms that may not have been entered. This process is ongoing, but is approaching the final iteration.
+
+In the meantime, I have begun cleaning and organizing the data, preparing to merge it with the election results data and make it amenable for analysis in a report and for future academic research.
+
+#### Data coverage
+
+```{r}
+library(tidyverse)
+res_dat <- read_csv("data/pk18_results_with_matched_keys.csv") %>%
+  # Remove NA rows for elections not held
+  filter(contest_status != "Postponed") %>%
+  mutate(found = !is.na(key))
+  
+ass_dat <- read_csv("data/pk18_candidate_assets_master.csv")
+```
+
+Data will not be available for all candidates, even in the best case scenario. Some of the PDFs that were released by the ECP are corrupt, some are unreadable, and some files are missing altogether, as are some constituencies.
+
+In total, `r nrow(ass_dat)` forms have been entered. There are only `r nrow(res_dat)` candidates that contested the 2018 General Elections in open seats, implying that many more forms were filed than candidates ended up contesting. This could be due to candidates being disqualified or dropping out.
+
+Of these `r nrow(res_dat)` candidates who contested the election, we have successfully matched `r sum(res_dat$found)`, or `r round(100*mean(res_dat$found), 1)` percent of them. This number may go up as further efforts to plug gaps are being made. In particular, Research Consultants is currently investigating 624 forms that were released after the initial scrape of the ECP website that may shore up some of these gaps.
+
+Let's look at how this missingness breaks down by candidate rank, constituency, and province. First, what percent of first place candidates, second place candidates, and so on have we matched? The next figure and table break it down, and shows that we generally recover higher ranked candidates at higher rates (although it should be said that after the fifth ranked candidate or so the number of total candidates begins to fall as well). Note in the table the one "NA" candidate ran unopposed.
+
+```{r}
+rank_dat <- res_dat %>%
+  group_by(candidate_rank) %>%
+  summarize(pct_found = 100 * mean(!is.na(key)),
+            n_cands = n())
+ggplot(rank_dat, aes(x = candidate_rank, y = pct_found)) +
+  geom_col() + 
+  ggtitle("Matched candidates by rank") +
+  ylab("Pct of candidates matched") +
+  xlab("Candidate rank") +
+  theme_bw(base_size = 12)
+
+res_dat %>%
+  mutate(`Candidate rank` = cut(candidate_rank,
+                                breaks = c(0, 1.1, 2.1, 3.1, 4.1, 5.1, 100),
+                                labels = c("First", "Second", "Third", "Fourth", "Fifth", "Sixth+"))) %>%
+  group_by(`Candidate rank`) %>%
+  summarize( `Matched candidates` = sum(found),
+             `Total candidates` = n(),
+            `Percent matched` = 100*mean(found)) %>%
+  knitr::kable(., digits = 1)
+```
+
+\newpage 
+
+The next figure shows the number of constituencies (out of 840 that contested this election), for which we have zero data, complete data, or partial data coverage.
+
+```{r}
+cons_dat <- res_dat %>%
+  group_by(constituency_code) %>%
+  summarize(pct_found = 100 * mean(!is.na(key)),
+            n_cands = n()) %>%
+  mutate(
+    pct_found_group = case_when(
+      pct_found == 0 ~ "No candidates\nfound",
+      pct_found < 100 ~ "Some candidates\nfound",
+      pct_found == 100 ~ "All candidates\nfound"
+    ),
+    pct_found_group = factor(
+      pct_found_group,
+      levels = c(
+        "No candidates\nfound",
+        "Some candidates\nfound",
+        "All candidates\nfound"
+      )))
+ggplot(cons_dat, aes(x = pct_found_group)) +
+  geom_bar() + 
+  ggtitle("Constituencies by completion") +
+  ylab("Number of Constituencies") +
+  theme_bw(base_size = 12) +
+  theme(axis.title.x = element_blank())
+```
+
+Finally, we can see that much of the missingness comes from Balochistan and Islamabad (where again the total number of candidates is low as well). In Balochistan, some entire provinces are missing.
+
+```{r}
+prov_dat <- res_dat %>%
+  mutate(province = recode(province, `Khyber Paktunkhwa` = "Khyber\nPakhtunkhwa")) %>%
+  group_by(province) %>% 
+  summarize(pct_found = 100 * mean(!is.na(key)),
+            n_cands = n())
+ggplot(prov_dat, aes(x = province, y = pct_found)) +
+  geom_col() +
+  ggtitle("Matched candidates by province") +
+  ylab("Pct of candidates matched") +
+  theme_bw(base_size = 12) +
+  theme(axis.title.x = element_blank())
+
+res_dat %>%
+  rename(Province = province) %>%
+  group_by(Province) %>%
+  summarize(`Matched candidates` = sum(found),
+             `Total candidates` = n(),
+            `Percent matched` = 100*mean(found)) %>%
+  knitr::kable(., digits = 1)
+```
+
+\newpage 
+
+Lastly, there are both provincial and national assemblies. The national assemblies are much higher profile, and we can see our coverage there is also better:
+
+```{r}
+res_dat %>%
+  rename(Assembly = assembly) %>%
+  group_by(Assembly) %>%
+  summarize(`Matched candidates` = sum(found),
+             `Total candidates` = n(),
+            `Percent matched` = 100*mean(found)) %>%
+  knitr::kable(., digits = 1)
+```
+
+#### Available covariates
+
+After all of the merging is done, a considerable amount of cleaning and estimating from the data will need to be done to create high quality data. However, the covariates included will be at least these below (although there may be missingness on some variables for some observations):
+
+* Identifiers
+    * National tax number
+    * Computerized National Identity Card number
+* Demographics
+    * Education
+    * Occupation
+    * Number of children
+    * Location registered to vote
+    * Number and status of outstanding criminal cases
+* Assets and liabilities
+    * Total asset value this year
+    * Total asset value last year
+    * Total tax payments last three years
+    * Total liabilities
+    * Value of:
+        * Domestic property
+        * Foreign property
+        * Capital holdings
+        * Vehicles
+        * Jewelry
+        * Cash deposits
+        * Other investments (by category)
+* Other data
+    * Foreign passports
+    * Foreign trips number and cost
+    * Elected previously

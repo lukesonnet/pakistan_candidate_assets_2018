@@ -1,0 +1,311 @@
+\documentclass[]{article}
+\usepackage{lmodern}
+\usepackage{amssymb,amsmath}
+\usepackage{ifxetex,ifluatex}
+\usepackage{fixltx2e} % provides \textsubscript
+\ifnum 0\ifxetex 1\fi\ifluatex 1\fi=0 % if pdftex
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+\else % if luatex or xelatex
+  \ifxetex
+    \usepackage{mathspec}
+  \else
+    \usepackage{fontspec}
+  \fi
+  \defaultfontfeatures{Ligatures=TeX,Scale=MatchLowercase}
+\fi
+% use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+% use microtype if available
+\IfFileExists{microtype.sty}{%
+\usepackage{microtype}
+\UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\hypersetup{unicode=true,
+            pdftitle={Pakistani Candidate Asset Declaration Data - Progress and Update},
+            pdfauthor={Luke Sonnet},
+            pdfborder={0 0 0},
+            breaklinks=true}
+\urlstyle{same}  % don't use monospace font for urls
+\usepackage{longtable,booktabs}
+\usepackage{graphicx,grffile}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+\IfFileExists{parskip.sty}{%
+\usepackage{parskip}
+}{% else
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt plus 2pt minus 1pt}
+}
+\setlength{\emergencystretch}{3em}  % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{0}
+% Redefines (sub)paragraphs to behave more like sections
+\ifx\paragraph\undefined\else
+\let\oldparagraph\paragraph
+\renewcommand{\paragraph}[1]{\oldparagraph{#1}\mbox{}}
+\fi
+\ifx\subparagraph\undefined\else
+\let\oldsubparagraph\subparagraph
+\renewcommand{\subparagraph}[1]{\oldsubparagraph{#1}\mbox{}}
+\fi
+
+%%% Use protect on footnotes to avoid problems with footnotes in titles
+\let\rmarkdownfootnote\footnote%
+\def\footnote{\protect\rmarkdownfootnote}
+
+%%% Change title format to be more compact
+\usepackage{titling}
+
+% Create subtitle command for use in maketitle
+\newcommand{\subtitle}[1]{
+  \posttitle{
+    \begin{center}\large#1\end{center}
+    }
+}
+
+\setlength{\droptitle}{-2em}
+
+  \title{Pakistani Candidate Asset Declaration Data - Progress and Update}
+    \pretitle{\vspace{\droptitle}\centering\huge}
+  \posttitle{\par}
+    \author{Luke Sonnet}
+    \preauthor{\centering\large\emph}
+  \postauthor{\par}
+      \predate{\centering\large\emph}
+  \postdate{\par}
+    \date{11/28/2018}
+
+
+\begin{document}
+\maketitle
+
+This report outlines the goal of collecting data on Pakistani
+candidates, current progress on data entry and cleaning, and what can be
+expected in the final dataset in terms of the candidates included and
+the covariates available.
+
+\paragraph{Introduction}\label{introduction}
+
+In the run up to the 2018 General Elections in Pakistan, all prospective
+candidates must submit several forms to be approved as candidates in the
+general elections. Two of these forms, a candidate affidavit form and a
+statement of assets and liabilities were released by the Election
+Commission of Pakistan (ECP) in late June, 2018, just under a month
+before the elections.
+
+These forms contain a rich set of data on self-declared candidate
+wealth, tax payments, foreign holdings, outstanding criminal charges,
+education, occupation, payments to and from political parties, and more.
+Every candidate is supposed to submit these documents. The central
+problem with these data is that they need not be released by the ECP,
+and thus there are gaps in which candidates/constituencies are covered,
+and that the data released are of questionable quality (e.g.~some
+uploads are photographs of hand-written PDFs).
+
+USIP, in a continued effort to release high-quality data around
+elections in Central and South Asia, has funded an effort to enter this
+data rigorously, and clean and prepare it so that it can be merged with
+other important datasets, such as the election results and the official
+tax payments reported by the tax authority of Pakistan.
+
+\paragraph{Current status}\label{current-status}
+
+The first wave of manual data entry by Research Solutions, a contracted
+firm based in Lahore, Pakistan, with experience working with survey and
+administrative economic and electoral data, was completed in September
+of 2018. In the ensuing months, I have gone back and forth with Research
+Solutions, asking them to reenter certain data, and to address certain
+forms that may not have been entered. This process is ongoing, but is
+approaching the final iteration.
+
+In the meantime, I have begun cleaning and organizing the data,
+preparing to merge it with the election results data and make it
+amenable for analysis in a report and for future academic research.
+
+\paragraph{Data coverage}\label{data-coverage}
+
+Data will not be available for all candidates, even in the best case
+scenario. Some of the PDFs that were released by the ECP are corrupt,
+some are unreadable, and some files are missing altogether, as are some
+constituencies.
+
+In total, 17927 forms have been entered. There are only 11689 candidates
+that contested the 2018 General Elections in open seats, implying that
+many more forms were filed than candidates ended up contesting. This
+could be due to candidates being disqualified or dropping out.
+
+Of these 11689 candidates who contested the election, we have
+successfully matched 10214, or 87.4 percent of them. This number may go
+up as further efforts to plug gaps are being made. In particular,
+Research Consultants is currently investigating 624 forms that were
+released after the initial scrape of the ECP website that may shore up
+some of these gaps.
+
+Let's look at how this missingness breaks down by candidate rank,
+constituency, and province. First, what percent of first place
+candidates, second place candidates, and so on have we matched? The next
+figure and table break it down, and shows that we generally recover
+higher ranked candidates at higher rates (although it should be said
+that after the fifth ranked candidate or so the number of total
+candidates begins to fall as well). Note in the table the one ``NA''
+candidate ran unopposed.
+
+\begin{center}\includegraphics{sonnet_usip_update_2018_11_28_files/figure-latex/unnamed-chunk-2-1} \end{center}
+
+\begin{longtable}[]{@{}lrrr@{}}
+\toprule
+Candidate rank & Matched candidates & Total candidates & Percent
+matched\tabularnewline
+\midrule
+\endhead
+First & 763 & 840 & 90.8\tabularnewline
+Second & 749 & 840 & 89.2\tabularnewline
+Third & 752 & 840 & 89.5\tabularnewline
+Fourth & 754 & 840 & 89.8\tabularnewline
+Fifth & 749 & 836 & 89.6\tabularnewline
+Sixth+ & 6447 & 7492 & 86.1\tabularnewline
+NA & 0 & 1 & 0.0\tabularnewline
+\bottomrule
+\end{longtable}
+
+\newpage 
+
+The next figure shows the number of constituencies (out of 840 that
+contested this election), for which we have zero data, complete data, or
+partial data coverage.
+
+\begin{center}\includegraphics{sonnet_usip_update_2018_11_28_files/figure-latex/unnamed-chunk-3-1} \end{center}
+
+Finally, we can see that much of the missingness comes from Balochistan
+and Islamabad (where again the total number of candidates is low as
+well). In Balochistan, some entire provinces are missing.
+
+\begin{center}\includegraphics{sonnet_usip_update_2018_11_28_files/figure-latex/unnamed-chunk-4-1} \end{center}
+
+\begin{longtable}[]{@{}lrrr@{}}
+\toprule
+Province & Matched candidates & Total candidates & Percent
+matched\tabularnewline
+\midrule
+\endhead
+Balochistan & 605 & 1233 & 49.1\tabularnewline
+Islamabad & 37 & 69 & 53.6\tabularnewline
+Khyber Paktunkhwa & 1771 & 1866 & 94.9\tabularnewline
+Punjab & 5168 & 5510 & 93.8\tabularnewline
+Sindh & 2633 & 3011 & 87.4\tabularnewline
+\bottomrule
+\end{longtable}
+
+\newpage 
+
+Lastly, there are both provincial and national assemblies. The national
+assemblies are much higher profile, and we can see our coverage there is
+also better:
+
+\begin{longtable}[]{@{}lrrr@{}}
+\toprule
+Assembly & Matched candidates & Total candidates & Percent
+matched\tabularnewline
+\midrule
+\endhead
+National & 3036 & 3431 & 88.5\tabularnewline
+Provincial & 7178 & 8258 & 86.9\tabularnewline
+\bottomrule
+\end{longtable}
+
+\paragraph{Available covariates}\label{available-covariates}
+
+After all of the merging is done, a considerable amount of cleaning and
+estimating from the data will need to be done to create high quality
+data. However, the covariates included will be at least these below
+(although there may be missingness on some variables for some
+observations):
+
+\begin{itemize}
+\tightlist
+\item
+  Identifiers
+
+  \begin{itemize}
+  \tightlist
+  \item
+    National tax number
+  \item
+    Computerized National Identity Card number
+  \end{itemize}
+\item
+  Demographics
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Education
+  \item
+    Occupation
+  \item
+    Number of children
+  \item
+    Location registered to vote
+  \item
+    Number and status of outstanding criminal cases
+  \end{itemize}
+\item
+  Assets and liabilities
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Total asset value this year
+  \item
+    Total asset value last year
+  \item
+    Total tax payments last three years
+  \item
+    Total liabilities
+  \item
+    Value of:
+
+    \begin{itemize}
+    \tightlist
+    \item
+      Domestic property
+    \item
+      Foreign property
+    \item
+      Capital holdings
+    \item
+      Vehicles
+    \item
+      Jewelry
+    \item
+      Cash deposits
+    \item
+      Other investments (by category)
+    \end{itemize}
+  \end{itemize}
+\item
+  Other data
+
+  \begin{itemize}
+  \tightlist
+  \item
+    Foreign passports
+  \item
+    Foreign trips number and cost
+  \item
+    Elected previously
+  \end{itemize}
+\end{itemize}
+
+
+\end{document}

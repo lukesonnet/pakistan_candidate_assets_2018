@@ -3,3 +3,7 @@
 .RData
 .Ruserdata
 .DS_Store
+
+# For google drive REST api
+credentials.json
+token.json

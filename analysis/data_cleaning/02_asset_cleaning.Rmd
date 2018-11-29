@@ -1,0 +1,509 @@
+
+```{r}
+cleaned_assets <- read_csv("analysis/data_cleaning/01_assets.csv")
+write_csv(cleaned_assets, "data/pk18_candidate_assets_master.csv")
+```
+
+### Part 2: Cleaning the Asset form variables.
+
+This includes all variables measuring immovable, movable property and business capital as reported in the asset form. The data in the affidavit will be dealt with in a separate section. 
+
+
+#### Immovable property inside Pakistan
+
+```{r}
+#table(cleaned_assets$im_prop_pak_g_count)
+
+#A. converting negatives to missing values
+cleaned_assets <- cleaned_assets%>%
+  mutate(
+    im_prop_pak_g_count=ifelse(im_prop_pak_g_count %in% c(-9999,-99,-96,-9), NA, im_prop_pak_g_count)
+    )
+# checking
+
+# {table(cleaned_assets$im_prop_pak_g_count, useNA = "always")}
+
+# the variables im_prop_pak_t and im_prop_pak_a are of LABELLED type, hence letting them stay as is. 
+
+#B. Checking the existing aggregate variable and constructing new to check.
+
+# table(cleaned_assets$im_prop_pak_agg)
+
+# converting negatives to missing values
+cleaned_assets <- cleaned_assets%>%
+  mutate_at(vars(starts_with("im_prop_pak_p_")), funs(ifelse(.<0, NA, .)))%>%
+  mutate(
+    im_prop_pak_agg=ifelse(im_prop_pak_agg<0,NA,im_prop_pak_agg),
+  )
+
+#checking
+# {table(cleaned_assets$im_prop_pak_p_3)}
+
+# what this does is basically convert any prices given <0 (i.e. any variation of -99), it converts to NA.
+  
+#4. Generating a new aggregate variable for immovable property within Pakistan
+
+totes <- cleaned_assets%>%
+  select(key, starts_with("im_prop_pak_p"))%>%
+  gather(im_prop_pak_type, im_prop_pak_val, -key)%>%
+  group_by(key)%>%
+  summarize(im_prop_pak_totes=sum(im_prop_pak_val, na.rm = T))
+
+cleaned_assets<-left_join(cleaned_assets, totes, by = "key")
+
+# cleaned_assets%>%
+#   mutate(correct_sum=im_prop_pak_totes==im_prop_pak_agg)%>%
+#   select(im_prop_pak_p_1,im_prop_pak_p_2,im_prop_pak_p_3,im_prop_pak_p_4, im_prop_pak_agg, im_prop_pak_totes,correct_sum)
+
+# So, clearly, the previous aggregate was incorrect and this new one is correct. One prob: all those with all NAs, their sum is given as 0, not NA.
+
+```
+**IMP**: The new variable that measures the total of values of all immovable property in Pakistan is **im_prop_pak_totes**. One issue with this variable is that the sums of all NAs is also declared as 0 and not NA. 
+
+#### Immovable property outside Pakistan
+We'll repeat the above exercise for immovable property declared outside Pakistan.
+
+```{r}
+# table(cleaned_assets$im_prop_pako_g_count, useNA = "always")
+
+#A. converting negatives to missing values
+cleaned_assets <- cleaned_assets%>%
+  mutate(
+    im_prop_pako_g_count=ifelse(im_prop_pako_g_count %in% c(-9999,-999,-990,-99,-66,-96,-9), NA, im_prop_pako_g_count)
+    )
+# checking
+# {table(cleaned_assets$im_prop_pako_g_count, useNA = "always")}
+
+
+# converting negatives to missing values
+cleaned_assets <- cleaned_assets%>%
+  mutate_at(vars(starts_with("im_prop_pako_p_")), funs(ifelse(.<0, NA, .)))%>%
+  mutate(
+    im_prop_pako_agg=ifelse(im_prop_pak_agg<0,NA,im_prop_pak_agg)
+  )
+
+#checking
+# {table(cleaned_assets$im_prop_pako_p_2)}
+
+#4. Generating a new aggregate variable for immovable property within Pakistan
+
+totes2 <- cleaned_assets%>%
+  select(key, starts_with("im_prop_pako_p"))%>%
+  gather(im_prop_pako_type, im_prop_pako_val, -key)%>%
+  group_by(key)%>%
+  summarize(im_prop_pako_totes=sum(im_prop_pako_val, na.rm = T))
+
+cleaned_assets<-left_join(cleaned_assets, totes2, by = "key")
+
+# cleaned_assets%>%
+#   mutate(correct_sum=im_prop_pako_totes==im_prop_pako_agg)%>%
+#   filter(im_prop_pako_totes>0)%>%
+#   select(im_prop_pako_p_1,im_prop_pako_p_2,im_prop_pako_p_3,im_prop_pako_p_4, im_prop_pako_agg, im_prop_pako_totes,correct_sum)
+
+rm(totes, totes2)
+
+```
+**IMP**: The new variable that measures the total of values of all immovable property outside Pakistan is **im_prop_pako_totes**. One issue with this variable is that the sums of all NAs is also declared as 0 and not NA. 
+
+#### Business Capital within and outside Pakistan
+
+```{r}
+# table(cleaned_assets$bus_cap_wpk_count)
+# table(cleaned_assets$bus_cap_opk_count)
+
+cleaned_assets <- cleaned_assets%>%
+  mutate(
+    bus_cap_wpk_count=ifelse(bus_cap_wpk_count %in% c(-9999,-999,-99,-96,-69,-9,-3), NA, bus_cap_wpk_count),
+     bus_cap_opk_count=ifelse(bus_cap_opk_count %in% c(-9999,-99,-66,-6,-9), NA, bus_cap_opk_count)
+    )
+
+# converting negatives to missing values
+cleaned_assets <- cleaned_assets %>%
+  mutate_at(vars(starts_with("bus_cap_wpk_am_"),starts_with("bus_cap_opk_amount") ), funs(ifelse(.<0, NA, .)),)
+
+# Creating a variable for the SUM of the values of all business capital owned in Pakistan
+biztotes <- cleaned_assets%>%
+  select(key, starts_with("bus_cap_wpk_am_"))%>%
+  gather(bus_cap_wpk_type, bus_cap_wpk_val, -key)%>%
+  group_by(key)%>%
+  summarize(bus_cap_wpk_totes=sum(bus_cap_wpk_val, na.rm = T))
+  
+cleaned_assets<-left_join(cleaned_assets, biztotes, by = "key")
+
+# cleaned_assets%>%
+#   filter(bus_cap_wpk_totes>0 & bus_cap_wpk_am_2>0)%>%
+#   select(bus_cap_wpk_am_1,bus_cap_wpk_am_2,bus_cap_wpk_am_3,bus_cap_wpk_am_4, bus_cap_wpk_totes)
+
+# Creating a variable for the SUM of the values of all business capital owned outside Pakistan
+biztotes2 <- cleaned_assets%>%
+  select(key, starts_with("bus_cap_opk_amount"))%>%
+  gather(bus_cap_opk_type, bus_cap_opk_val, -key)%>%
+  group_by(key)%>%
+  summarize(bus_cap_opk_totes=sum(bus_cap_opk_val, na.rm = T))
+  
+cleaned_assets<-left_join(cleaned_assets, biztotes2, by = "key")
+
+# cleaned_assets%>%
+#   filter(bus_cap_opk_totes>0 & bus_cap_opk_amount_2>0)%>%
+#   select(bus_cap_opk_amount_1,bus_cap_opk_amount_2,bus_cap_opk_amount_3,bus_cap_opk_amount_4, bus_cap_opk_totes)
+
+rm(biztotes, biztotes2)
+```
+**IMP**: The variables **bus_cap_wpk_totes** and **bus_cap_opk_totes** give the total sums of values of business capital owned in and outside Pakistan respectively. 0 if not reported or reported as 0.
+
+#### Other Asset Measures - Bank Drafts: Motor_cost and Investments Total
+
+```{r}
+# table(cleaned_assets$bank_drafts)
+# table(cleaned_assets$machinery)
+# table(cleaned_assets$other_remitted, useNA = "always")
+
+cleaned_assets <- cleaned_assets%>%
+  rename(invest_icp = inest_icp)%>%
+  mutate_at(vars(starts_with("invest_"), bank_drafts, machinery,other_remitted, motor_cost), funs(ifelse(.<0, NA, .)),)
+
+#total investments
+invtotes <- cleaned_assets%>%
+  select(key, starts_with("invest"))%>%
+  gather(invest_type, invest_val, -key)%>%
+  group_by(key)%>%
+  summarize(invest_totes=sum(invest_val, na.rm = T))
+  
+cleaned_assets<-left_join(cleaned_assets, invtotes, by = "key")
+
+# cleaned_assets%>%
+#   filter(invest_totes>0)%>%
+#   select(invest_stocks,invest_deben, invest_nit, invest_icp, invest_loans, invest_totes)
+
+rm(invtotes)
+
+# the variables motor_count have no observations
+
+```
+**IMP**: The new variable **invest_totes** sums up all investments types.
+
+
+#### Jewellery
+
+```{r}
+
+cleaned_assets<- cleaned_assets%>%
+  mutate(jewel_cost=ifelse(jewel_cost<0, NA, jewel_cost),
+         jewel_tolas=ifelse(jewel_tolas<0, NA, jewel_tolas),
+    jewel_val_case=case_when(
+    (jewel_cost>0) ~ "Value Available",
+    (jewel_cost==0) ~ "Zero",
+    (jewel_cost==-99| jewel_cost==""|is.na(jewel_cost)|jewel_cost=="NA") ~ "Value Not Available"
+  ))%>%
+   mutate(jewel_tola_case=case_when(
+    (jewel_tolas>0) ~ "Weight Available",
+    (jewel_tolas==0) ~ "Zero",
+    (jewel_tolas==-99 | jewel_tolas==""|is.na(jewel_cost)) ~ "Weight Not Available"
+  ))%>%
+  #{table(.$jewel_val_case, .$jewel_tola_case, useNA = "always")}
+  mutate(jewel_price_per_tola=ifelse(jewel_val_case=="Value Available" & jewel_tola_case=="Weight Available",jewel_cost/jewel_tolas, NA),
+         imputed_jewel_price_avg=mean(jewel_price_per_tola, na.rm = TRUE),
+         jewel_val_final=case_when(
+           jewel_val_case=="Value Available" ~ jewel_cost,
+           jewel_val_case=="Value Not Available" & jewel_tola_case=="Weight Available" ~ imputed_jewel_price_avg*jewel_tolas,
+           jewel_val_case=="Zero" | jewel_tola_case=="Zero" ~ 0
+         ),
+         jewel_val_final_case=case_when(
+           jewel_val_case=="Value Available" ~ "Original Value",
+           jewel_val_case=="Value Not Available" & jewel_tola_case=="Weight Available" ~ "Imputed Value",
+           jewel_val_case=="Zero" | jewel_tola_case=="Zero" ~ "Zero"
+         ))
+
+# cleaned_assets%>%  
+#   filter(jewel_val_final_case %in% c("Imputed Value", "Original Value"))%>%
+#   select(jewel_cost,jewel_tolas, jewel_val_case, jewel_tola_case, jewel_val_final, jewel_val_final_case)%>%
+#   as.data.frame()
+
+```
+**IMP**: New variables created in this exercise. Those with an * can be deleted as they were only intermediate vars, but not deleting them right now in case you want to keep them.
+
+1. **jewel_val_final**: final value of jewellery to be used. This assumes that for candidates who have declared both jewellery value and weight, the weight is merely the weight of the valued jewellery and not the weight of jewellery __in addition__ to the valued jewellery.
+2. **jewel_val_final_case**: tells us if the jewel_val_final is the original reported value or the imputed value (or zero)
+3. **imputed_jewel_price_avg**: the per-tola price of jewellery used to calculate imputed value for jewellery whose weight is available but value isn't
+4. jewel_price_per_tola *: individual value/tola for candidates that reported both weight and value. The mean of this variable is the **imputed_jewel_price_avg**
+5. jewel_val_case, jewel_tola_case * : Categorical variables tell us is value/weight is available, NA or Zero
+
+
+#### Other Assets, Savings and Liabilites
+
+```{r}
+cleaned_assets<- cleaned_assets%>%
+mutate_at(vars(cash_cost, cash_bank_cost, aopu_cost, attp_cost, other_assests_cost, liabilities), funs(ifelse(.<0, NA, .)))
+
+```
+Nothing new here. Just converted negative numbers to NA. 
+
+### Part 3: Cleaning the Affidavit variables.
+
+
+#### Candidate General Info
+
+```{r}
+cleaned_assets <- cleaned_assets%>%
+  rename(cand_vote_sr_no=sr_no,
+         cand_vote_electoral_area=electoral_area,
+         cand_vote_tehsil=tehsil,
+         cand_vote_district=district)
+#renaming so aren't confused with the tehsil district of the place where elections are being contested. 
+
+# table(cleaned_assets$cand_vote_electoral_area)
+#this is varied. Has weird numbers or text. How to fix this?
+
+# will/can clean district and tehsil vars
+
+# district
+# table(cleaned_assets$cand_vote_district)
+
+cleaned_assets <- cleaned_assets%>%
+  rename(cand_dependents_no=dependents)%>%
+  mutate(cand_vote_sr_no=ifelse(cand_vote_sr_no<0, NA, cand_vote_sr_no),
+         cand_dependents_no=ifelse(cand_dependents_no<0 |cand_dependents_no %in% c(99,385,5000,9999), NA, cand_dependents_no),
+         dist_has_any_nums=grepl("\\d", cand_vote_district),
+         tehsil_has_any_nums=grepl("\\d", cand_vote_tehsil),
+         dist_has_only_nums=check.numeric(cand_vote_district),
+         tehsil_has_only_nums=check.numeric(cand_vote_tehsil),
+         dist_has_chrs_nums=dist_has_any_nums & !dist_has_only_nums,
+         tehsil_has_chrs_nums=tehsil_has_any_nums & !tehsil_has_only_nums, 
+         
+         cand_vote_district=ifelse(dist_has_only_nums, NA, cand_vote_district),
+         cand_vote_district=recode(cand_vote_district, 
+                                   `Sanghar3` ="Sanghar",
+                                   `Korangi`= "Korangi", 
+                                   `Eas5` = "East"),
+         cand_vote_tehsil=ifelse(tehsil_has_only_nums | cand_vote_tehsil %in% c("-O9","_99"), NA, cand_vote_tehsil),
+         cand_vote_tehsil=recode(cand_vote_tehsil,
+                                 `Cit6 Lahore`="Lahore",
+                                 `Lh4` = "Lahore")
+  )%>%
+  select(-starts_with("dist_has"), -starts_with("tehsil_has"))
+
+# table(cleaned_assets$cand_dependents_no, useNA = "always")
+```
+**IMP**: Renaming done here to allow for clarification when using variables, the prefix "cand_vote_" indicates that the details are of the place where the candidate is registered. Some cleaning of the district, tehsil and dependents number variables done. 
+
+
+#### Crimes
+```{r}
+
+cleaned_assets<-cleaned_assets%>%
+  select(-crimes_count)%>%
+  mutate(num_criminal=ifelse(num_criminal<0,NA,num_criminal))%>%
+  mutate_at(vars(starts_with("title_criminal_"), starts_with("name_court")),
+            funs(ifelse(.%in%c("",",","-9","-99","-9999","99","_99","Z","O","0","Nil","Nill","No","N-A","Na","N/A",".","z","N","94","N.A","nil"),NA,.)))
+
+```
+Just some basic cleaning, removed the variable crimes_count because it was an unclean duplicate of num_criminal.
+
+
+#### Education and occupation
+
+```{r}
+
+cleaned_assets <- cleaned_assets%>%
+  mutate_at(vars(educ,occup), funs(ifelse(.%in% c("","- 99", "-9","-99","-999","-9999","-9o","-o9","=99","?nn", "-- 99","--99","_99","-98","-990","-9o9","199","99","=99"),NA,.)))%>%
+  mutate(
+    educ=ifelse(educ %in% c("no", "nil", "nill","ni","n,a","_99","No", "No education", "No formal education", "No Formal Education","No Faormal Education", "Nill","Nilk","Nil","Na","N.A","N,e.d","N,A", "Illtrate","Illitrate","Illiterate","Illetrate","Illeterate","Illatreat","Iletrate","ILLitrate","-NiZ","0"),"None",educ),
+    occup=ifelse(occup %in% c("JOBLESS","Job less","Jobless","Jobles","Jonless","N,A","N.A","N.a","N/A","NON","Na","O","O0","Un employed","Un employment","Unemploye","Unemployed","Unemployee"),"Unemployed",occup)
+  )
+
+```
+I've only cleaned some part to create NAs where needed, and unemployed/no education values by manually scanning the entries and identifying those needing conversion. cleaning these two is a bit of challenge because they've been recorded as is, so I'm unsure how I can categorize them. One way might be to employ some RAs to categorize each data point according to 4 digit occupation codes and categorical vars for education.
+
+
+#### Income and Taxes Paid
+
+```{r}
+# str(cleaned_assets$year_income)
+
+cleaned_assets<-cleaned_assets%>%
+  mutate_at(vars(starts_with("income_total"),starts_with("tax_paid"), intern_trips_no, intern_trips_cost), funs(ifelse(.<0,NA,.)))%>%
+  mutate_at(vars(starts_with("source_income")),funs(ifelse(.=="-99",NA,.)))%>%
+  rename(income_total_2017=income_total,
+         income_total_2016=income_total2,
+         income_total_2015=income_total3,
+         tax_paid_2017=tax_paid,
+         tax_paid_2016=tax_paid2,
+         tax_paid_2015=tax_paid3,
+         source_income_2017=source_income,
+         source_income_2016=source_income2,
+         source_income_2015=source_income3
+         )
+
+```
+The variables year_income*'s are only binary variables and don't really give us any information when compared with the form, I suggest we delete these? 
+Otherwise cleaned variables and renamed them to make them more descriptive. Newvars are titled: income_total_201*, tax_paid_20*, source_income_20*. * = {15,16,17}
+
+
+#### Agricultural Income and Tax
+
+This is similar to the income case otherwise, as the variables are already fairly clean. As in the case of year_income*'s, the variables year_agri_income*'s are also binary and don't really have any useful info for us.
+
+```{r}
+cleaned_assets<-cleaned_assets%>%
+  mutate_at(vars(starts_with("agri_land_holding"),starts_with("agri_income"), starts_with("agri_income_tax")), funs(ifelse(.<0,NA,.)))%>%
+  rename(agri_land_holding_2017=agri_land_holding,
+         agri_land_holding_2016=agri_land_holding1,
+         agri_land_holding_2015=agri_land_holding2,
+         unit_agri_2017=unit_agri,
+         unit_agri_2016=unit_agri1,
+         unit_agri_2015=unit_agri2,
+         agri_income_2017=agri_income,
+         agri_income_2016=agri_income1,
+         agri_income_2015=agri_income2,
+         agri_income_tax_2017=agri_income_tax,
+         agri_income_tax_2016=agri_income_tax1,
+         agri_income_tax_2015=agri_income_tax2
+         )
+
+```
+
+What **is** an important exercise, is converting the agricultural land holding to a single unit (I will use square feet) to allow for adequate comparison, even if we don't assign a value price for it.
+
+Land Conversion Rates:
+
+* 1 Marla: 225 sq feet for housing
+* 1 Marla: 272.25 sq feet for agriculture (*)
+* 1 Kanal = 20 Marla
+* 1 Kila = 1 Acre = 8 Kanal = 8*20 = 160 Marlas
+* 1 Acre = 8 Kanal = 8*20 = 160 Marlas
+* I Muraba = 25 Acre = 400 Kanal = 8000 Marlas
+
+Historically, Kilas and Acres are slightly different (+-1 kanal) but those measurements are only applicable in a few areas of South Punjab, but are now used interchangeably.
+
+
+```{r}
+# agri unit labels:
+# 1=Muraba
+# 2=Acre
+# 3=Kila
+# 4=Kanal
+# 5=Marla
+
+# cleaned_assets%>%
+#   mutate_at(vars(starts_with("agri_land_holding_")), funs(
+#     sqfeet = case_when(
+#       unit_agri_2017==5 ~ 272.25*.,
+#       unit_agri_2017==4 ~ 272.25*20*.,
+#       unit_agri_2017==3 ~ 272.25*20*8*.,
+#       unit_agri_2017==2 ~ 272.25*20*8*.,
+#       unit_agri_2017==1 ~ 272.25*20*8*25*.,
+#     )
+#   )
+#   )
+# 
+
+cleaned_assets <- cleaned_assets%>%
+  mutate(
+    agri_land_holding_2017_sqfeet=case_when(
+      unit_agri_2017==5 ~ 272.25*agri_land_holding_2017,
+      unit_agri_2017==4 ~ 272.25*20*agri_land_holding_2017,
+      unit_agri_2017==3 ~ 272.25*20*8*agri_land_holding_2017,
+      unit_agri_2017==2 ~ 272.25*20*8*agri_land_holding_2017,
+      unit_agri_2017==1 ~ 272.25*20*8*25*agri_land_holding_2017
+    ),
+    agri_land_holding_2016_sqfeet=case_when(
+      unit_agri_2016==5 ~ 272.25*agri_land_holding_2016,
+      unit_agri_2016==4 ~ 272.25*20*agri_land_holding_2016,
+      unit_agri_2016==3 ~ 272.25*20*8*agri_land_holding_2016,
+      unit_agri_2016==2 ~ 272.25*20*8*agri_land_holding_2016,
+      unit_agri_2016==1 ~ 272.25*20*8*25*agri_land_holding_2016
+    ),
+    agri_land_holding_2015_sqfeet=case_when(
+      unit_agri_2015==5 ~ 272.25*agri_land_holding_2015,
+      unit_agri_2015==4 ~ 272.25*20*agri_land_holding_2015,
+      unit_agri_2015==3 ~ 272.25*20*8*agri_land_holding_2015,
+      unit_agri_2015==2 ~ 272.25*20*8*agri_land_holding_2015,
+      unit_agri_2015==1 ~ 272.25*20*8*25*agri_land_holding_2015
+    )
+  )
+
+#table(cleaned_assets$agri_land_holding_2017)
+```
+So the variables **agri_land_holding_20*_sqfeet** give us the land holdings in unit measurement (sq-feet). Next step would be to somehow find land value of these. This would be easier if we had an idea *where* the land was located, but we don't so we will have to assume a value for **average_agri_land_price per sqfeet** and then multiply by this to get a value for the land owned, but since that's just a linear increase, just using the existing ones as a measure of value is okay too, I think.
+
+
+#### Cand election history, party contribution, foreigner
+
+```{r}
+cleaned_assets<- cleaned_assets%>%
+  mutate(cons_nam=ifelse(cons_nam<0, NA, cons_nam),
+         cons_type=ifelse(cons_type=="",NA,cons_type),
+         year=ifelse(year %in% c(-99,1000,8888), NA, year),
+         year=recode(year,`2048`=2018, `2103`=2013)
+         )%>%
+  rename(elected_before_cons_nam=cons_nam,
+         elected_before_cons_type=cons_type,
+         elected_before_year=year)
+
+cleaned_assets<- cleaned_assets%>%
+          mutate_at(vars(starts_with("contri_")), funs(ifelse(.%in%c(-99,.96,.99,99),NA,.)))%>%
+          mutate(
+            name_country=ifelse(name_country %in% c("","-99"), NA, name_country),
+            name_country=recode(name_country,
+                             `Canadia`="Canada",
+                             `Dubai`="UAE",
+                             `Engaland`="United Kingdom",
+                             `Saudia` = "Saudi Arabia",
+                             `Uae` = "UAE",
+                             `Uk` = "United Kingdom",
+                             `Usa`="USA",
+                             `Karadic Pakistan`="Pakistan"
+                             )
+          )
+
+```
+The renaming is necessary so as to prevent confusion with the cons_name and type of current election.
+
+
+#### FY Assets
+
+```{r}
+cleaned_assets<-cleaned_assets%>%
+  mutate_at(vars(current_fy_net_assets,past_fy_net_assets), funs(ifelse(.%in%c(-999,-9,-99,.96,.99,99),NA,.)))%>%
+  mutate(fy_net_assets_change=current_fy_net_assets-past_fy_net_assets,
+         change_error=fy_net_assets_change!=change_assets)
+
+  # filter(!change_error)%>%
+  # select(current_fy_net_assets, past_fy_net_assets, change_assets,fy_net_change,change_error)
+  # 
+
+
+```
+A brief look tells us that the existing variable documenting called change_assets is wrong, so the new constructed **fy_net_assets_change** should be used as the accurate measure of net change. I would delete change_assets, but not doing so for now in case you want to keep it.
+
+
+#### Mobile Phone Numbers
+
+```{r}
+
+cleaned_assets<-cleaned_assets%>%
+  mutate(
+    contact_num = ifelse(
+      contact_num %in% c("88888888888", "99999999699", "99999999999"),
+      NA,
+      contact_num
+    )
+  )
+
+```
+
+### Part 4: The final dataset
+
+```{r}
+
+write_csv(cleaned_assets, path = "data/final_data/cleaned_asset_data_IK.csv", na = ".")
+
+```
+
+***
+
+Still to clean:
+
+1. Categorize **educ**, **occup**.
+2. Waiting on AT for **motor_cost** and **motor_number** which currently have no observations.
+3. Value for agri land holding?

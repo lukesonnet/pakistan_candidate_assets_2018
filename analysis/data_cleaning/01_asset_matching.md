@@ -6793,7 +6793,7 @@ Now check those duplicates in one constituency.
     #>   entry year_income year_income_1 year_income_2 year_income_3
     #> 1   new       1 2 3             1             1             1
     #>   year_income_4 intern_trips_no intern_trips_cost
-    #> 1             0              NA                NA
+    #> 1             0             -99                NA
 
     filter(cleaned_assets, uid == "02371") %>%
       summarize_all(funs(diff = length(unique(.))>1)) %>%

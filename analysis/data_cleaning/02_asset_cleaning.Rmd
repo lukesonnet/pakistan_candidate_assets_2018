@@ -8,8 +8,13 @@ editor_options:
 
 
 ```{r}
+library(tidyverse)
 cleaned_assets <- read_csv("analysis/data_cleaning/01_assets.csv")
-write_csv(cleaned_assets, "data/pk18_candidate_assets_master.csv")
+
+# rely on key as unique id
+if (any(duplicated(cleaned_assets$key))) {
+  stop("Some duplicated keys!")
+}
 ```
 
 ### Part 2: Cleaning the Asset form variables.
@@ -21,43 +26,70 @@ This includes all variables measuring immovable, movable property and business c
 
 ```{r}
 #table(cleaned_assets$im_prop_pak_g_count)
+#cleaned_assets <- haven::read_dta("data/rsols_data/Luke_08282018_Asset.dta")
+table(cleaned_assets$im_prop_pak, cleaned_assets$entry, useNA = "a")
+cleaned_assets %>%
+  select(starts_with("im_prop_pak")) %>%
+  summarize_all(funs(nas = sum(is.na(.))))
 
+with(cleaned_assets, table(is.na(im_prop_pak_p_1), im_prop_pak))
+with(cleaned_assets, table(im_prop_pak, entry, useNA = "always"))
+tail(with(cleaned_assets, table(im_prop_pak_p_1, entry, useNA = "always")))
+
+with(filter(cleaned_assets, im_prop_pak == 0), table(im_prop_pak_p_1, useNA = "a"))
+
+with(cleaned_assets, table(im_prop_pak > 0 & !is.na(im_prop_pak), im_prop_pak_p_1 > 0 & !is.na(im_prop_pak_p_1)))
+
+# Property and business prices
+prop_capital_long <- cleaned_assets %>%
+  select(key, im_prop_pak, im_prop_pako, bus_cap_wpk_count, bus_cap_opk_count,
+         starts_with("im_prop_pak_p"), starts_with("im_prop_pako_p"),
+         starts_with("bus_cap_wpk_am"), starts_with("bus_cap_opk_am")) %>%
+  gather(var, val, -key) %>%
+  mutate(val = as.numeric(val),
+         val = ifelse(val < 0, NA, val))
+
+m_prop_capital_wide <- prop_capital_long %>%
+  spread(var, val)
+
+m_prop_capital_totals <- prop_capital_long %>%
+  mutate(var = gsub("_[0-9]+$", "", var)) %>%
+  group_by(key, var) %>%
+  summarize(total = sum(val, na.rm = TRUE)) %>%
+  filter(var %in% c("im_prop_pako_p", "im_prop_pak_p", "bus_cap_wpk_am", "bus_cap_opk_am")) %>%
+  mutate(var = paste0(var, "_total")) %>%
+  spread(var, total)
 #A. converting negatives to missing values
-cleaned_assets <- cleaned_assets%>%
-  mutate(
-    im_prop_pak_g_count=ifelse(im_prop_pak_g_count %in% c(-9999,-99,-96,-9), NA, im_prop_pak_g_count)
-    )
-# checking
-
-# {table(cleaned_assets$im_prop_pak_g_count, useNA = "always")}
-
-# the variables im_prop_pak_t and im_prop_pak_a are of LABELLED type, hence letting them stay as is. 
-
-#B. Checking the existing aggregate variable and constructing new to check.
-
-# table(cleaned_assets$im_prop_pak_agg)
-
-# converting negatives to missing values
-cleaned_assets <- cleaned_assets%>%
-  mutate_at(vars(starts_with("im_prop_pak_p_")), funs(ifelse(.<0, NA, .)))%>%
-  mutate(
-    im_prop_pak_agg=ifelse(im_prop_pak_agg<0,NA,im_prop_pak_agg),
+m_prop_types <- cleaned_assets %>%
+  select(key, 
+         starts_with("im_prop_pak_t"), starts_with("im_prop_pako_t")) %>%
+  mutate_at(
+    vars(starts_with("im_prop_pak_t"), starts_with("im_prop_pako_t")),
+    funs(recode(
+      .,
+      `1` = "Residential",
+      `2` = "Agricultural",
+      `3` = "Commercial",
+      `777` = "Other",
+      .default = NA_character_
+    ))
+  ) %>%
+  mutate_at(
+    vars(starts_with("im_prop_pak_a"), starts_with("im_prop_pako_a")),
+    funs(recode(
+      .,
+      `1` = "Rural",
+      `2` = "Urban",
+      .default = NA_character_
+    ))
   )
 
-#checking
-# {table(cleaned_assets$im_prop_pak_p_3)}
+# TODO clean names?
+bus_names <- cleaned_assets %>%
+  select(key, starts_with("bus_cap_wpk_na"), starts_with("bus_cap_opk_na")) %>%
+  gather(var, val, -key)
 
-# what this does is basically convert any prices given <0 (i.e. any variation of -99), it converts to NA.
-  
-#4. Generating a new aggregate variable for immovable property within Pakistan
-
-totes <- cleaned_assets%>%
-  select(key, starts_with("im_prop_pak_p"))%>%
-  gather(im_prop_pak_type, im_prop_pak_val, -key)%>%
-  group_by(key)%>%
-  summarize(im_prop_pak_totes=sum(im_prop_pak_val, na.rm = T))
-
-cleaned_assets<-left_join(cleaned_assets, totes, by = "key")
+# the variables im_prop_pak_t and im_prop_pak_a are of LABELLED type, hence letting them stay as is. 
 
 # cleaned_assets%>%
 #   mutate(correct_sum=im_prop_pak_totes==im_prop_pak_agg)%>%
@@ -68,97 +100,6 @@ cleaned_assets<-left_join(cleaned_assets, totes, by = "key")
 ```
 **IMP**: The new variable that measures the total of values of all immovable property in Pakistan is **im_prop_pak_totes**. One issue with this variable is that the sums of all NAs is also declared as 0 and not NA. 
 
-#### Immovable property outside Pakistan
-We'll repeat the above exercise for immovable property declared outside Pakistan.
-
-```{r}
-# table(cleaned_assets$im_prop_pako_g_count, useNA = "always")
-
-#A. converting negatives to missing values
-cleaned_assets <- cleaned_assets%>%
-  mutate(
-    im_prop_pako_g_count=ifelse(im_prop_pako_g_count %in% c(-9999,-999,-990,-99,-66,-96,-9), NA, im_prop_pako_g_count)
-    )
-# checking
-# {table(cleaned_assets$im_prop_pako_g_count, useNA = "always")}
-
-
-# converting negatives to missing values
-cleaned_assets <- cleaned_assets%>%
-  mutate_at(vars(starts_with("im_prop_pako_p_")), funs(ifelse(.<0, NA, .)))%>%
-  mutate(
-    im_prop_pako_agg=ifelse(im_prop_pak_agg<0,NA,im_prop_pak_agg)
-  )
-
-#checking
-# {table(cleaned_assets$im_prop_pako_p_2)}
-
-#4. Generating a new aggregate variable for immovable property within Pakistan
-
-totes2 <- cleaned_assets%>%
-  select(key, starts_with("im_prop_pako_p"))%>%
-  gather(im_prop_pako_type, im_prop_pako_val, -key)%>%
-  group_by(key)%>%
-  summarize(im_prop_pako_totes=sum(im_prop_pako_val, na.rm = T))
-
-cleaned_assets<-left_join(cleaned_assets, totes2, by = "key")
-
-# cleaned_assets%>%
-#   mutate(correct_sum=im_prop_pako_totes==im_prop_pako_agg)%>%
-#   filter(im_prop_pako_totes>0)%>%
-#   select(im_prop_pako_p_1,im_prop_pako_p_2,im_prop_pako_p_3,im_prop_pako_p_4, im_prop_pako_agg, im_prop_pako_totes,correct_sum)
-
-rm(totes, totes2)
-
-```
-**IMP**: The new variable that measures the total of values of all immovable property outside Pakistan is **im_prop_pako_totes**. One issue with this variable is that the sums of all NAs is also declared as 0 and not NA. 
-
-#### Business Capital within and outside Pakistan
-
-```{r}
-# table(cleaned_assets$bus_cap_wpk_count)
-# table(cleaned_assets$bus_cap_opk_count)
-
-cleaned_assets <- cleaned_assets%>%
-  mutate(
-    bus_cap_wpk_count=ifelse(bus_cap_wpk_count %in% c(-9999,-999,-99,-96,-69,-9,-3), NA, bus_cap_wpk_count),
-     bus_cap_opk_count=ifelse(bus_cap_opk_count %in% c(-9999,-99,-66,-6,-9), NA, bus_cap_opk_count)
-    )
-
-# converting negatives to missing values
-cleaned_assets <- cleaned_assets %>%
-  mutate_at(vars(starts_with("bus_cap_wpk_am_"),starts_with("bus_cap_opk_amount") ), funs(ifelse(.<0, NA, .)),)
-
-# Creating a variable for the SUM of the values of all business capital owned in Pakistan
-biztotes <- cleaned_assets%>%
-  select(key, starts_with("bus_cap_wpk_am_"))%>%
-  gather(bus_cap_wpk_type, bus_cap_wpk_val, -key)%>%
-  group_by(key)%>%
-  summarize(bus_cap_wpk_totes=sum(bus_cap_wpk_val, na.rm = T))
-  
-cleaned_assets<-left_join(cleaned_assets, biztotes, by = "key")
-
-# cleaned_assets%>%
-#   filter(bus_cap_wpk_totes>0 & bus_cap_wpk_am_2>0)%>%
-#   select(bus_cap_wpk_am_1,bus_cap_wpk_am_2,bus_cap_wpk_am_3,bus_cap_wpk_am_4, bus_cap_wpk_totes)
-
-# Creating a variable for the SUM of the values of all business capital owned outside Pakistan
-biztotes2 <- cleaned_assets%>%
-  select(key, starts_with("bus_cap_opk_amount"))%>%
-  gather(bus_cap_opk_type, bus_cap_opk_val, -key)%>%
-  group_by(key)%>%
-  summarize(bus_cap_opk_totes=sum(bus_cap_opk_val, na.rm = T))
-  
-cleaned_assets<-left_join(cleaned_assets, biztotes2, by = "key")
-
-# cleaned_assets%>%
-#   filter(bus_cap_opk_totes>0 & bus_cap_opk_amount_2>0)%>%
-#   select(bus_cap_opk_amount_1,bus_cap_opk_amount_2,bus_cap_opk_amount_3,bus_cap_opk_amount_4, bus_cap_opk_totes)
-
-rm(biztotes, biztotes2)
-```
-**IMP**: The variables **bus_cap_wpk_totes** and **bus_cap_opk_totes** give the total sums of values of business capital owned in and outside Pakistan respectively. 0 if not reported or reported as 0.
-
 #### Other Asset Measures - Bank Drafts: Motor_cost and Investments Total
 
 ```{r}
@@ -166,27 +107,34 @@ rm(biztotes, biztotes2)
 # table(cleaned_assets$machinery)
 # table(cleaned_assets$other_remitted, useNA = "always")
 
-cleaned_assets <- cleaned_assets%>%
-  rename(invest_icp = inest_icp)%>%
-  mutate_at(vars(starts_with("invest_"), bank_drafts, machinery,other_remitted, motor_cost), funs(ifelse(.<0, NA, .)),)
+m_other_capital <- cleaned_assets %>%
+  select(key, inest_icp, starts_with("invest_"), bank_drafts, machinery, other_remitted,
+         assest_remit) %>%
+  rename(invest_icp = inest_icp) %>%
+  mutate_at(vars(starts_with("invest_"), bank_drafts, machinery, other_remitted, assest_remit),
+            funs(ifelse(. < 0 | . == 99, NA, .)))
+table(cleaned_assets$assest_remit)
 
-#total investments
-invtotes <- cleaned_assets%>%
-  select(key, starts_with("invest"))%>%
-  gather(invest_type, invest_val, -key)%>%
+m_invest_totals <- m_other_capital %>%
+  select(key, starts_with("invest")) %>%
+  gather(var, val, -key) %>%
   group_by(key)%>%
-  summarize(invest_totes=sum(invest_val, na.rm = T))
-  
-cleaned_assets<-left_join(cleaned_assets, invtotes, by = "key")
+  summarize(invest_total = sum(val, na.rm = TRUE))
 
-# cleaned_assets%>%
-#   filter(invest_totes>0)%>%
-#   select(invest_stocks,invest_deben, invest_nit, invest_icp, invest_loans, invest_totes)
+m_motor_cost <- cleaned_assets %>%
+  mutate(motor_value = ifelse(motor_cost < 1, NA, motor_cost)) %>%
+  select(key, motor_value)
 
-rm(invtotes)
 
-# the variables motor_count have no observations
+cars <- read_csv("data/rsols_corrections/car_data.csv")
+m_car_totals <- cars %>%
+  select(key, `Motor Number`) %>%
+  rename(motor_number = `Motor Number`) %>%
+  filter(!is.na(motor_number))
+m_car_totals
 
+intersect(m_car_totals$key, m_motor_cost$key[!is.na(m_motor_cost$motor_value)])
+# TODO: model for car value
 ```
 **IMP**: The new variable **invest_totes** sums up all investments types.
 
@@ -194,57 +142,52 @@ rm(invtotes)
 #### Jewellery
 
 ```{r}
+str(cleaned_assets$jewel_cost)
+str(cleaned_assets$jewel_tolas)
 
-cleaned_assets<- cleaned_assets%>%
-  mutate(jewel_cost=ifelse(jewel_cost<0, NA, jewel_cost),
-         jewel_tolas=ifelse(jewel_tolas<0, NA, jewel_tolas),
-    jewel_val_case=case_when(
-    (jewel_cost>0) ~ "Value Available",
-    (jewel_cost==0) ~ "Zero",
-    (jewel_cost==-99| jewel_cost==""|is.na(jewel_cost)|jewel_cost=="NA") ~ "Value Not Available"
-  ))%>%
-   mutate(jewel_tola_case=case_when(
-    (jewel_tolas>0) ~ "Weight Available",
-    (jewel_tolas==0) ~ "Zero",
-    (jewel_tolas==-99 | jewel_tolas==""|is.na(jewel_cost)) ~ "Weight Not Available"
-  ))%>%
-  #{table(.$jewel_val_case, .$jewel_tola_case, useNA = "always")}
-  mutate(jewel_price_per_tola=ifelse(jewel_val_case=="Value Available" & jewel_tola_case=="Weight Available",jewel_cost/jewel_tolas, NA),
-         imputed_jewel_price_avg=mean(jewel_price_per_tola, na.rm = TRUE),
-         jewel_val_final=case_when(
-           jewel_val_case=="Value Available" ~ jewel_cost,
-           jewel_val_case=="Value Not Available" & jewel_tola_case=="Weight Available" ~ imputed_jewel_price_avg*jewel_tolas,
-           jewel_val_case=="Zero" | jewel_tola_case=="Zero" ~ 0
-         ),
-         jewel_val_final_case=case_when(
-           jewel_val_case=="Value Available" ~ "Original Value",
-           jewel_val_case=="Value Not Available" & jewel_tola_case=="Weight Available" ~ "Imputed Value",
-           jewel_val_case=="Zero" | jewel_tola_case=="Zero" ~ "Zero"
-         ))
-
-# cleaned_assets%>%  
-#   filter(jewel_val_final_case %in% c("Imputed Value", "Original Value"))%>%
-#   select(jewel_cost,jewel_tolas, jewel_val_case, jewel_tola_case, jewel_val_final, jewel_val_final_case)%>%
-#   as.data.frame()
-
+m_jewelry <- cleaned_assets %>%
+  mutate_at(
+    vars(jewel_cost, jewel_tolas),
+    funs(ifelse(. < 0, NA, .))
+  ) %>%
+  mutate_at(
+    vars(jewel_cost, jewel_tolas),
+    funs(
+      case = case_when(
+        . > 0 ~ "Positive",
+        . == 0 ~ "Zero",
+        is.na(.) ~ "Not Available"
+      )
+    )
+  ) %>%
+  select(key, jewel_cost, jewel_tolas)
+m_jewelry
+#with(m_jewelry, table(jewel_cost_case, jewel_tolas_case))
+# TODO impute jewelry value
 ```
-**IMP**: New variables created in this exercise. Those with an * can be deleted as they were only intermediate vars, but not deleting them right now in case you want to keep them.
-
-1. **jewel_val_final**: final value of jewellery to be used. This assumes that for candidates who have declared both jewellery value and weight, the weight is merely the weight of the valued jewellery and not the weight of jewellery __in addition__ to the valued jewellery.
-2. **jewel_val_final_case**: tells us if the jewel_val_final is the original reported value or the imputed value (or zero)
-3. **imputed_jewel_price_avg**: the per-tola price of jewellery used to calculate imputed value for jewellery whose weight is available but value isn't
-4. jewel_price_per_tola *: individual value/tola for candidates that reported both weight and value. The mean of this variable is the **imputed_jewel_price_avg**
-5. jewel_val_case, jewel_tola_case * : Categorical variables tell us is value/weight is available, NA or Zero
 
 
 #### Other Assets, Savings and Liabilites
 
 ```{r}
-cleaned_assets<- cleaned_assets%>%
-mutate_at(vars(cash_cost, cash_bank_cost, aopu_cost, attp_cost, other_assests_cost, liabilities), funs(ifelse(.<0, NA, .)))
+m_cash_liabilities <- cleaned_assets %>%
+  mutate_at(
+    vars(
+      cash_cost, cash_bank_cost, aopu_cost, attp_cost,
+      other_assests_cost, liabilities
+    ),
+    funs(ifelse( . < 0, NA, .))
+  ) %>%
+  rename(cash = cash_cost,
+         cash_bank = cash_bank_cost,
+         furniture_value = aopu_cost,
+         assets_transferred_to_others_value = attp_cost,
+         other_assets_value = other_assests_cost) %>%
+  select(key, cash, cash_bank, furniture_value, assets_transferred_to_others_value,
+         other_assets_value, liabilities)
 
+m_cash_liabilities
 ```
-Nothing new here. Just converted negative numbers to NA. 
 
 ### Part 3: Cleaning the Affidavit variables.
 
@@ -252,11 +195,27 @@ Nothing new here. Just converted negative numbers to NA.
 #### Candidate General Info
 
 ```{r}
-cleaned_assets <- cleaned_assets%>%
-  rename(cand_vote_sr_no=sr_no,
-         cand_vote_electoral_area=electoral_area,
-         cand_vote_tehsil=tehsil,
-         cand_vote_district=district)
+registration <- cleaned_assets %>%
+  rename(
+    registered_sr_no = sr_no,
+    registered_electoral_area = electoral_area,
+    registered_tehsil = tehsil,
+    registered_district = district
+  ) %>%
+  select(starts_with("registered_"))
+# table(m_registration$registered_sr_no)
+# unique(m_registration$registered_electoral_area)
+# unique(m_registration$registered_tehsil)
+# cand_vote_district=ifelse(dist_has_only_nums, NA, cand_vote_district),
+#          cand_vote_district=recode(cand_vote_district, 
+#                                    `Sanghar3` ="Sanghar",
+#                                    `Korangi`= "Korangi", 
+#                                    `Eas5` = "East"),
+#          cand_vote_tehsil=ifelse(tehsil_has_only_nums | cand_vote_tehsil %in% c("-O9","_99"), NA, cand_vote_tehsil),
+#          cand_vote_tehsil=recode(cand_vote_tehsil,
+#                                  `Cit6 Lahore`="Lahore",
+#                                  `Lh4` = "Lahore")
+
 #renaming so aren't confused with the tehsil district of the place where elections are being contested. 
 
 # table(cleaned_assets$cand_vote_electoral_area)
@@ -266,29 +225,180 @@ cleaned_assets <- cleaned_assets%>%
 
 # district
 # table(cleaned_assets$cand_vote_district)
+filter(cleaned_assets, constituency_code == "NA-253") %>%
+  select(candidate_name, dependents)
 
-cleaned_assets <- cleaned_assets%>%
-  rename(cand_dependents_no=dependents)%>%
-  mutate(cand_vote_sr_no=ifelse(cand_vote_sr_no<0, NA, cand_vote_sr_no),
-         cand_dependents_no=ifelse(cand_dependents_no<0 |cand_dependents_no %in% c(99,385,5000,9999), NA, cand_dependents_no),
-         dist_has_any_nums=grepl("\\d", cand_vote_district),
-         tehsil_has_any_nums=grepl("\\d", cand_vote_tehsil),
-         dist_has_only_nums=check.numeric(cand_vote_district),
-         tehsil_has_only_nums=check.numeric(cand_vote_tehsil),
-         dist_has_chrs_nums=dist_has_any_nums & !dist_has_only_nums,
-         tehsil_has_chrs_nums=tehsil_has_any_nums & !tehsil_has_only_nums, 
-         
-         cand_vote_district=ifelse(dist_has_only_nums, NA, cand_vote_district),
-         cand_vote_district=recode(cand_vote_district, 
-                                   `Sanghar3` ="Sanghar",
-                                   `Korangi`= "Korangi", 
-                                   `Eas5` = "East"),
-         cand_vote_tehsil=ifelse(tehsil_has_only_nums | cand_vote_tehsil %in% c("-O9","_99"), NA, cand_vote_tehsil),
-         cand_vote_tehsil=recode(cand_vote_tehsil,
-                                 `Cit6 Lahore`="Lahore",
-                                 `Lh4` = "Lahore")
-  )%>%
-  select(-starts_with("dist_has"), -starts_with("tehsil_has"))
+educ_none <- c(
+  "no", "nil", "nill","ni","n,a","No", "No education", 
+  "No formal education", "No Formal Education","No Faormal Education", "Nill",
+  "Nilk","Nil","Na","N.A","N,e.d","N,A","Illtrate","Illitrate","Illiterate",
+  "Illetrate","Illeterate","Illatreat","Iletrate","ILLitrate","-NiZ","0",
+  "_99", "-99", "99", "o", "uneducated", "-9", "-9999", "under primary", "a",
+  "-999", "un educated", "unedu", "uneducation", "none", "niil"
+)
+educ_primary <- c(
+  "5th", "primary", "5", "7th", "litrate", "literate", "primery", "under middle", "litterate",
+  "5 th", "5 pas", "basic education"
+)
+educ_middle <- c(
+  "middle", "under matric", "middel", "8", "8th", "middle pass", "non matric",
+  "9th", "midle", "undr matric", "8th class", "9", "under metric", "meddle", "mifdle", "midlle"
+)
+# Same as finishing 10th grade, secondary completion
+educ_matric <- c(
+  "matric", "matriculation", "ssc", "metric", "mtric", "o level", "10th", 
+  "mattic", "o levels", "high school diploma", "mateic", "matirc", "matrik",
+  "matroc", "mayric", "d com", "dhms", "icom", "diploma", "dcom", "i com", "graguate"
+)
+# vocational equivalent to 12th grade
+educ_dae <- c("dae")
+# 11th and 12th grade, pre-college finals, some more specialization
+educ_intermediate <- c(
+  "fa", "intermediate", "inter", "intermidiate", "fsc", "f a", "a level", "hsc",
+  "a levels", "intermediat", "hssc", "inter medeat",
+  "itermediate", "post graduate", "fac"
+)
+educ_voc_bachelors <- c("b tech", "b", "be", "be electronics", "b e", "btech", "bed", "engineering", "engineer", "civil engineer", "bit", "electrical engineering")
+educ_bachelors <- c(
+  "ba", "bsc", "bcom", "bba", "b com", "b a", "bs", "ballb", "bachelor",
+  "bds", "bsc hons", "ba bed", "bcs", "be civil", "bachelor of arts", "ba b ed",
+  "bacholar", "b sc", "bs hons", "bachelor of commerce", "bachlor", 
+  "bsc engineering", "bscs", "ba in arts", "bachelor's", "bachelors", "bba finance",
+  "becholar", "m bbs", "m bbs", "mbs"
+)
+educ_llb <- c(
+  "llb", "ba llb", "law graduate",  "llm", "ba llb", "ba  llb", "bcom llb",
+  "ba/llb", "llb hons", "bar at law", "bsc llb", "law", "b a llb",
+  "barrister at law", "b a l l b", "b com llb", "llb ba", "ba bed llb",
+  "be llb", "l lb", "ll b"
+)
+educ_masters <- c(
+  "ms", "ma", "mba", "mbbs", "msc", "masters", "master", "ma political science",
+  "mphil", "mcom", "m phil", "ma english", "mba llb", "ma llb", "m a",
+  "ma islamiyat", "mallb", "ma bed", "mphill", "ma economics", "msc llb",
+  "ma pol science", "ma urdu", "ma islamiat", "ma phill", "ma education", 
+  "ma history", "med", "double ma", "ma islamyat", "master in ir", 
+  "msc chemistry", "msc physics", "llb ma", "m a political science", "mcs",
+  "mpa llb", "m phill", "m com"
+)
+educ_phd <- c("phd", "md")
+educ_dars <- c("dars e nizami", "darse nizami", "darse nazami")
+educ_relig <- c("islami", "islamic education")
+# education?
+
+cleaned_assets %>%
+  mutate(educ = gsub("\\.|\\,", "", tolower(educ))) %>%
+
+  filter(!(educ %in% c(
+    tolower(educ_none), educ_bachelors, educ_dae, educ_dars, educ_intermediate,
+    educ_llb, educ_masters, educ_matric, educ_middle, educ_none, educ_phd,
+    educ_primary, educ_voc_bachelors
+  ))) %>%
+  head(100) %>%
+  as.data.frame
+
+m_demographics <- cleaned_assets %>%
+  mutate_at(
+    vars(educ, occup), 
+    funs(
+      ifelse(
+        . %in% c("","- 99", "-9","-99","-999","-9999","-9o","-o9","=99",
+                 "?nn", "--99","--99","_99","-98","-990","-9o9","199",
+                  "99","=99"),
+        NA,
+        .
+      )
+    )
+  ) %>%
+  rename(num_spouse_dependents = dependents) %>%
+  select(key, num_spouse_dependents, educ) %>%
+  mutate(
+    num_spouse_dependents = ifelse(
+      num_spouse_dependents < 0 | num_spouse_dependents > 100,
+      NA,
+      num_spouse_dependents
+    ),
+    educ = gsub("\\.|\\,", "", tolower(educ)),
+    educ = case_when(
+      educ %in% gsub("\\.|\\,", "", tolower(educ_none)) ~ "None",
+      educ %in% educ_bachelors ~ "Bachelors",
+      educ %in% educ_dae ~ "Vocational Matriculation",
+      educ %in% educ_dars ~ "Religious (Dars E Nizami)",
+      educ %in% educ_intermediate ~ "Intermediate",
+      educ %in% educ_llb ~ "LLB/LLM",
+      educ %in% educ_masters ~ "Masters",
+      educ %in% educ_matric ~ "Matriculation",
+      educ %in% educ_middle ~ "Middle",
+      educ %in% educ_phd ~ "Doctorate",
+      educ %in% educ_primary ~ "Primary",
+      educ %in% educ_voc_bachelors ~ "Vocational Bachelors",
+      educ %in% educ_relig ~ "Religious (other)",
+      substr(educ, 1, 3) %in% c("ma ", "m a", "ma/", "mab", "mba", "msc", "ms ") ~ "Masters",
+      grepl("llb", educ) ~ "LLB/LLM",
+      grepl("llm", educ) ~ "LLB/LLM",
+      substr(educ, 1, 3) %in% c("ba ", "bs ", "b a", "bac", "bcs", "bbm", "bc0", "bco") ~ "Bachelors",
+      substr(educ, 1, 3) %in% c("be ", "b e", "b t") ~ "Vocational Bachelors",
+      substr(educ, 1, 4) %in% c("bsc ", "mbbs", "bech") ~ "Bachelors",
+      grepl("bachelor|bachlor|bachalar|bachel|bacholar|batch|beachu|bavhelor", educ) ~ "Bachelors",
+      grepl("bachlor", educ) ~ "Bachelors",
+      grepl("phd", educ) ~ "Doctorate",
+      !grepl("under", educ) & (grepl("9", educ) | grepl("middle", educ)) ~ "Middle",
+      !grepl("under", educ) & grepl("5|6|7|educated|six|seven|priamry", educ) ~ "Primary",
+      !grepl("under", educ) & grepl("4", educ) ~ "Below Primary",
+      !grepl("under", educ) & grepl("matric|second", educ) ~ "Matriculation",
+      grepl("n[ia]zami", educ) ~ "Religious (Dars E Nizami)",
+      substr(educ, 1, 3) == "ass" | grepl("associat", educ) ~ "Vocational Matriculation",
+      grepl("dae", educ) ~ "Vocational Matriculation",
+      grepl("master", educ) ~ "Masters",
+      substr(educ, 1, 4) == "matr" ~ "Matriculation",
+      substr(educ, 1, 4) %in% c("grau", "grad", "intw", "inte", "inye") ~ "Intermediate",
+      grepl("law|barister|barrist|advoc|ll.b|lzlb|l l b", educ) ~ "LLB/LLM",
+      grepl("under m[at]|under\\s*gr", educ) ~ "Middle",
+      grepl("bsc|bba", educ) ~ "Bachelors",
+      grepl("2|3|under parim", educ) ~ "Below Primary",
+      grepl("8|milddle|mddle", educ) ~ "Middle",
+      grepl("a.*level|american high school|high[er]* secondary|atric|under fa|metric|maric|martic|matiix|marric|matticulation|mtaric|mwtric", educ) ~ "Matriculation",
+      grepl("o.*level|10|secondary|ics|post graduation|enter|imtermediate|inatermediat|intr|hsc intermediate", educ) ~ "Intermediate",
+      grepl("p hd", educ) ~ "Doctorate",
+      grepl("prim|non graduate", educ) ~ "Primary",
+      grepl("madra|shah[ad]|ulmaa|molvi|aalim|alam|alim|alem|hafiz|religious|aalm|faz[ai]l|khaw|tajvee|shadat|islami|allim|alma|almia|ama|almiya|quran|relig|tan[zs]eem|mufti|mov.*i", educ) ~ "Religious (other)",
+      grepl("btec", educ) ~ "Vocational Bachelors",
+      grepl("account|acca", educ) ~ "Vocational Bachelors",
+      grepl("ms|mpa|dvm|vet|mphil|mfil|mastrs|maters|m b a|m b b s|m fil|m phil|matsers|mpjil|mph|m s c|m sc|mac", educ) ~ "Masters",
+      grepl("bs|com|pharm|mbb s|mmb|b ba|b-a", educ) ~ "Bachelors",
+      substr(educ, 1, 3) %in% c("dar", "der") ~ "Religious (Dars E Nizami)",
+      substr(educ, 1, 3) %in% c("dip", "dba") ~ "Vocational Matriculation",
+      substr(educ, 1, 6) %in% c("doctor") ~ "Doctorate",
+      substr(educ, 1, 3) %in% c("fa ", "fss", "fsc", "mtr", "faa", "fca", "fs") ~ "Matriculation",
+      grepl("mid|moddle", educ) ~ "Middle",
+      grepl("tec|bae", educ) ~ "Vocational Bachelors",
+      TRUE ~ "Other"
+    ),
+    educ_group = case_when(
+      grepl("Vocational", educ) ~ "Vocational",
+      grepl("Religious", educ) ~ "Religious",
+      educ == "Below Primary" ~ "None",
+      TRUE ~ educ
+    )
+  )
+
+table(m_demographics$educ_group)
+m_demographics %>%
+  group_by(educ) %>%
+  summarize(n = n()) %>%
+  arrange(-n) %>% 
+  head(1000) %>%
+  as.data.frame
+
+names(m_demographics)
+# Occupation
+# 
+# mutate(
+#     educ=ifelse(educ %in% ,"None",educ),
+#     occup=ifelse(occup %in% c("JOBLESS","Job less","Jobless","Jobles","Jonless","N,A","N.A","N.a","N/A","NON","Na","O","O0","Un employed","Un employment","Unemploye","Unemployed","Unemployee"),"Unemployed",occup)
+#   )
+#     
+#       NA, cand_dependents_no)
 
 # table(cleaned_assets$cand_dependents_no, useNA = "always")
 ```
@@ -298,50 +408,70 @@ cleaned_assets <- cleaned_assets%>%
 #### Crimes
 ```{r}
 
-cleaned_assets<-cleaned_assets%>%
-  select(-crimes_count)%>%
-  mutate(num_criminal=ifelse(num_criminal<0,NA,num_criminal))%>%
-  mutate_at(vars(starts_with("title_criminal_"), starts_with("name_court")),
-            funs(ifelse(.%in%c("",",","-9","-99","-9999","99","_99","Z","O","0","Nil","Nill","No","N-A","Na","N/A",".","z","N","94","N.A","nil"),NA,.)))
+m_crimes <- cleaned_assets %>%
+  select(key, num_criminal, starts_with("title_criminal_"), starts_with("name_court")) %>%
+  mutate(num_criminal = ifelse(num_criminal < 0, NA, num_criminal)) %>%
+  mutate_at(
+    vars(starts_with("title_criminal_"), starts_with("name_court")),
+    funs(
+      ifelse( . %in% c(
+          "",",","-9","-99","-9999","99","_99","Z","O","0","Nil","Nill",
+          "No","N-A","Na","N/A",".","z","N","94","N.A","nil"
+        ),
+        NA,
+        .
+      )
+    )
+  ) %>%
+  rename(crime_num = num_criminal) %>%
+  select(key, crime_num)
+
+# crimes_long <- m_crimes %>%
+#   gather(var, val, -crime_num, -key) %>%
+#   mutate(crime = str_extract(var, "[0-9]+"),
+#          var = gsub("\\_[0-9]+", "", var)) %>%
+#   spread(var, val) %>%
+#   rename(crime_title = title_criminal,
+#          crime_court_name = name_court,
+#          crime_num = num_criminal)
 
 ```
 Just some basic cleaning, removed the variable crimes_count because it was an unclean duplicate of num_criminal.
-
-
-#### Education and occupation
-
-```{r}
-
-cleaned_assets <- cleaned_assets%>%
-  mutate_at(vars(educ,occup), funs(ifelse(.%in% c("","- 99", "-9","-99","-999","-9999","-9o","-o9","=99","?nn", "-- 99","--99","_99","-98","-990","-9o9","199","99","=99"),NA,.)))%>%
-  mutate(
-    educ=ifelse(educ %in% c("no", "nil", "nill","ni","n,a","_99","No", "No education", "No formal education", "No Formal Education","No Faormal Education", "Nill","Nilk","Nil","Na","N.A","N,e.d","N,A", "Illtrate","Illitrate","Illiterate","Illetrate","Illeterate","Illatreat","Iletrate","ILLitrate","-NiZ","0"),"None",educ),
-    occup=ifelse(occup %in% c("JOBLESS","Job less","Jobless","Jobles","Jonless","N,A","N.A","N.a","N/A","NON","Na","O","O0","Un employed","Un employment","Unemploye","Unemployed","Unemployee"),"Unemployed",occup)
-  )
-
-```
-I've only cleaned some part to create NAs where needed, and unemployed/no education values by manually scanning the entries and identifying those needing conversion. cleaning these two is a bit of challenge because they've been recorded as is, so I'm unsure how I can categorize them. One way might be to employ some RAs to categorize each data point according to 4 digit occupation codes and categorical vars for education.
-
 
 #### Income and Taxes Paid
 
 ```{r}
 # str(cleaned_assets$year_income)
 
-cleaned_assets<-cleaned_assets%>%
-  mutate_at(vars(starts_with("income_total"),starts_with("tax_paid"), intern_trips_no, intern_trips_cost), funs(ifelse(.<0,NA,.)))%>%
-  mutate_at(vars(starts_with("source_income")),funs(ifelse(.=="-99",NA,.)))%>%
-  rename(income_total_2017=income_total,
-         income_total_2016=income_total2,
-         income_total_2015=income_total3,
-         tax_paid_2017=tax_paid,
-         tax_paid_2016=tax_paid2,
-         tax_paid_2015=tax_paid3,
-         source_income_2017=source_income,
-         source_income_2016=source_income2,
-         source_income_2015=source_income3
-         )
-
+m_income_taxes_trips <- cleaned_assets %>%
+  mutate_at(
+    vars(starts_with("income_total"), starts_with("tax_paid"), intern_trips_no, intern_trips_cost), 
+    funs(ifelse(. < 0, NA, .))
+  ) %>%
+  mutate_at(
+    vars(starts_with("source_income")),
+    funs(ifelse( . == "-99", NA , .))
+  ) %>%
+  rename(
+    income_total_2017 = income_total,
+    income_total_2016 = income_total2,
+    income_total_2015 = income_total3,
+    tax_paid_2017 = tax_paid,
+    tax_paid_2016 = tax_paid2,
+    tax_paid_2015 = tax_paid3,
+    source_income_2017 = source_income,
+    source_income_2016 = source_income2,
+    source_income_2015 = source_income3,
+    intern_trips_num = intern_trips_no
+  ) %>%
+  select(key, starts_with("source_income"), starts_with("income_total"),
+         starts_with("tax_paid"), starts_with("intern_trips"))
+cleaned_assets$year_income
+table(m_income_taxes_trips$source_income_2015)
+hist(log(m_income_taxes_trips$income_total_2017+1))
+table(m_income_taxes_trips$intern_trips_num)
+filter(m_income_taxes_trips, intern_trips_num == 45)
+head(m_income_taxes_trips)
 ```
 The variables year_income*'s are only binary variables and don't really give us any information when compared with the form, I suggest we delete these? 
 Otherwise cleaned variables and renamed them to make them more descriptive. Newvars are titled: income_total_201*, tax_paid_20*, source_income_20*. * = {15,16,17}
@@ -352,22 +482,37 @@ Otherwise cleaned variables and renamed them to make them more descriptive. Newv
 This is similar to the income case otherwise, as the variables are already fairly clean. As in the case of year_income*'s, the variables year_agri_income*'s are also binary and don't really have any useful info for us.
 
 ```{r}
-cleaned_assets<-cleaned_assets%>%
-  mutate_at(vars(starts_with("agri_land_holding"),starts_with("agri_income"), starts_with("agri_income_tax")), funs(ifelse(.<0,NA,.)))%>%
-  rename(agri_land_holding_2017=agri_land_holding,
-         agri_land_holding_2016=agri_land_holding1,
-         agri_land_holding_2015=agri_land_holding2,
-         unit_agri_2017=unit_agri,
-         unit_agri_2016=unit_agri1,
-         unit_agri_2015=unit_agri2,
-         agri_income_2017=agri_income,
-         agri_income_2016=agri_income1,
-         agri_income_2015=agri_income2,
-         agri_income_tax_2017=agri_income_tax,
-         agri_income_tax_2016=agri_income_tax1,
-         agri_income_tax_2015=agri_income_tax2
-         )
+m_agriculture <- cleaned_assets %>%
+  mutate_at(
+    vars(
+      starts_with("agri_land_holding"),
+      starts_with("agri_income"), 
+      starts_with("agri_income_tax")
+    ), 
+    funs(ifelse(. < 0, NA, .))
+  ) %>%
+  rename(
+    agri_land_holding_2017 = agri_land_holding,
+    agri_land_holding_2016 = agri_land_holding1,
+    agri_land_holding_2015 = agri_land_holding2,
+    agri_unit_2017 = unit_agri,
+    agri_unit_2016 = unit_agri1,
+    agri_unit_2015 = unit_agri2,
+    agri_income_2017 = agri_income,
+    agri_income_2016 = agri_income1,
+    agri_income_2015 = agri_income2,
+    agri_income_tax_2017 = agri_income_tax,
+    agri_income_tax_2016 = agri_income_tax1,
+    agri_income_tax_2015 = agri_income_tax2
+  ) %>%
+  select(key, starts_with("agri_"))
 
+agri_long <- m_agriculture %>%
+  gather(var, val, -key) %>%
+  mutate(year = str_extract(var, "[0-9]+"),
+         var = gsub("\\_[0-9]+", "", var)) %>%
+  spread(var, val)
+  
 ```
 
 What **is** an important exercise, is converting the agricultural land holding to a single unit (I will use square feet) to allow for adequate comparison, even if we don't assign a value price for it.
@@ -405,30 +550,19 @@ Historically, Kilas and Acres are slightly different (+-1 kanal) but those measu
 #   )
 # 
 
-cleaned_assets <- cleaned_assets%>%
+m_agri_total <- agri_long %>%
   mutate(
-    agri_land_holding_2017_sqfeet=case_when(
-      unit_agri_2017==5 ~ 272.25*agri_land_holding_2017,
-      unit_agri_2017==4 ~ 272.25*20*agri_land_holding_2017,
-      unit_agri_2017==3 ~ 272.25*20*8*agri_land_holding_2017,
-      unit_agri_2017==2 ~ 272.25*20*8*agri_land_holding_2017,
-      unit_agri_2017==1 ~ 272.25*20*8*25*agri_land_holding_2017
-    ),
-    agri_land_holding_2016_sqfeet=case_when(
-      unit_agri_2016==5 ~ 272.25*agri_land_holding_2016,
-      unit_agri_2016==4 ~ 272.25*20*agri_land_holding_2016,
-      unit_agri_2016==3 ~ 272.25*20*8*agri_land_holding_2016,
-      unit_agri_2016==2 ~ 272.25*20*8*agri_land_holding_2016,
-      unit_agri_2016==1 ~ 272.25*20*8*25*agri_land_holding_2016
-    ),
-    agri_land_holding_2015_sqfeet=case_when(
-      unit_agri_2015==5 ~ 272.25*agri_land_holding_2015,
-      unit_agri_2015==4 ~ 272.25*20*agri_land_holding_2015,
-      unit_agri_2015==3 ~ 272.25*20*8*agri_land_holding_2015,
-      unit_agri_2015==2 ~ 272.25*20*8*agri_land_holding_2015,
-      unit_agri_2015==1 ~ 272.25*20*8*25*agri_land_holding_2015
+    agri_land_holding_sqfeet = case_when(
+      agri_unit == 5 ~ 272.25*agri_land_holding,
+      agri_unit == 4 ~ 272.25*20*agri_land_holding,
+      agri_unit == 3 ~ 272.25*20*8*agri_land_holding,
+      agri_unit == 2 ~ 272.25*20*8*agri_land_holding,
+      agri_unit == 1 ~ 272.25*20*8*25*agri_land_holding
     )
-  )
+  ) %>%
+  select(key, year, agri_land_holding_sqfeet) %>%
+  mutate(year = paste0("agri_land_holding_sqfeet_", year)) %>%
+  spread(year, agri_land_holding_sqfeet)
 
 #table(cleaned_assets$agri_land_holding_2017)
 ```
@@ -438,31 +572,40 @@ So the variables **agri_land_holding_20*_sqfeet** give us the land holdings in u
 #### Cand election history, party contribution, foreigner
 
 ```{r}
-cleaned_assets<- cleaned_assets%>%
-  mutate(cons_nam=ifelse(cons_nam<0, NA, cons_nam),
-         cons_type=ifelse(cons_type=="",NA,cons_type),
-         year=ifelse(year %in% c(-99,1000,8888), NA, year),
-         year=recode(year,`2048`=2018, `2103`=2013)
-         )%>%
-  rename(elected_before_cons_nam=cons_nam,
-         elected_before_cons_type=cons_type,
-         elected_before_year=year)
-
-cleaned_assets<- cleaned_assets%>%
-          mutate_at(vars(starts_with("contri_")), funs(ifelse(.%in%c(-99,.96,.99,99),NA,.)))%>%
-          mutate(
-            name_country=ifelse(name_country %in% c("","-99"), NA, name_country),
-            name_country=recode(name_country,
-                             `Canadia`="Canada",
-                             `Dubai`="UAE",
-                             `Engaland`="United Kingdom",
-                             `Saudia` = "Saudi Arabia",
-                             `Uae` = "UAE",
-                             `Uk` = "United Kingdom",
-                             `Usa`="USA",
-                             `Karadic Pakistan`="Pakistan"
-                             )
-          )
+m_party_history_natl <- cleaned_assets %>%
+  mutate(
+    previous_constituency_name = ifelse(cons_nam < 0, NA, cons_nam),
+    previous_constituency_type = ifelse(cons_type == "", NA, cons_type),
+    previous_constituency_year = recode(
+      ifelse(year %in% c(-99, 1000, 8888), NA, year),
+      `2048` = 2018, 
+      `2103` = 2013
+    ),
+    dual_nationality = recode(
+      ifelse(name_country %in% c("", "-99"), NA, name_country),
+      `Canadia` = "Canada",
+      `Dubai` = "UAE",
+      `Engaland` = "United Kingdom",
+      `Saudia` = "Saudi Arabia",
+      `Uae` = "UAE",
+      `Uk` = "United Kingdom",
+      `Usa` = "USA",
+      `Karadic Pakistan` = "Pakistan"
+    ),
+    contact_num = ifelse(
+      contact_num %in% c("88888888888", "99999999699", "99999999999"),
+      NA,
+      contact_num
+    )
+  ) %>%
+  mutate_at(
+    vars(starts_with("contri_")), 
+    funs(ifelse(. %in% c(-99, .96, .99, 99) | . > 10e10, NA, .)) # could be CNIC
+  ) %>%
+  select(key, starts_with("previous_constituency"), dual_nationality, starts_with("contri_"), contact_num)
+head(m_party_history_natl)
+table(m_party_history_natl$contri_from_party)
+table(m_party_history_natl$contri_to_party)
 
 ```
 The renaming is necessary so as to prevent confusion with the cons_name and type of current election.
@@ -471,10 +614,19 @@ The renaming is necessary so as to prevent confusion with the cons_name and type
 #### FY Assets
 
 ```{r}
-cleaned_assets<-cleaned_assets%>%
-  mutate_at(vars(current_fy_net_assets,past_fy_net_assets), funs(ifelse(.%in%c(-999,-9,-99,.96,.99,99),NA,.)))%>%
-  mutate(fy_net_assets_change=current_fy_net_assets-past_fy_net_assets,
-         change_error=fy_net_assets_change!=change_assets)
+m_fy_assets <- cleaned_assets %>%
+  mutate_at(
+    vars(current_fy_net_assets,past_fy_net_assets),
+    funs(ifelse(. %in% c(-999,-9,-99,.96,.99,99), NA, .))
+  ) %>%
+  mutate(fy_net_assets_change = current_fy_net_assets - past_fy_net_assets) %>%
+  rename(
+    fy_net_assets_current = current_fy_net_assets,
+    fy_net_assets_past = past_fy_net_assets
+  ) %>%
+  select(key, starts_with("fy_net_assets_"))
+head(m_fy_assets)
+         #change_error = fy_net_assets_change != change_assets)
 
   # filter(!change_error)%>%
   # select(current_fy_net_assets, past_fy_net_assets, change_assets,fy_net_change,change_error)
@@ -485,30 +637,35 @@ cleaned_assets<-cleaned_assets%>%
 A brief look tells us that the existing variable documenting called change_assets is wrong, so the new constructed **fy_net_assets_change** should be used as the accurate measure of net change. I would delete change_assets, but not doing so for now in case you want to keep it.
 
 
-#### Mobile Phone Numbers
-
-```{r}
-
-cleaned_assets<-cleaned_assets%>%
-  mutate(
-    contact_num = ifelse(
-      contact_num %in% c("88888888888", "99999999699", "99999999999"),
-      NA,
-      contact_num
-    )
-  )
-
-```
-
 ### Part 4: The final dataset
 
 ```{r}
-
-write_csv(cleaned_assets, path = "data/final_data/cleaned_asset_data_IK.csv", na = ".")
-
+out_data <- reduce(
+  list(
+    select(cleaned_assets, key, uid, cnic, enum_name, constituency_code, candidate_name, father_name) %>%
+      mutate(cnic = as.character(cnic)),
+    m_demographics,
+    m_party_history_natl,
+    m_crimes,
+    m_agriculture,
+    m_agri_total,
+    m_income_taxes_trips,
+    m_fy_assets,
+    m_prop_capital_wide,
+    m_prop_types,
+    m_prop_capital_totals,
+    m_invest_totals,
+    m_other_capital,
+    m_jewelry,
+    m_motor_cost,
+    m_car_totals,
+    m_cash_liabilities
+  ),
+  left_join,
+  by = "key"
+)
+write_csv(out_data, "data/pk18_candidate_assets_master.csv")
 ```
-
-***
 
 Still to clean:
 

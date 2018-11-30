@@ -36,7 +36,7 @@ final_assets <- read_dta("data/rsols_data/Luke_08282018_Asset.dta") %>%
 # After complaints about some missing rows altogether in ~October 2018,
 # updated data was entered and sent
 new_assets <- read_csv("data/rsols_data/Asset Form Data_missing_rows.csv",
-                       na = c("", ".", "-99"),
+                       na = c("", "."),
                        col_types = cols(cnic = col_character(),
                                         contact_num = col_character())) %>%
   rename_at(vars(ends_with("FY_net_assets"), KEY), tolower) %>%

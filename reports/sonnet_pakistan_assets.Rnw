@@ -1,0 +1,531 @@
+\documentclass[12pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{pdfpages}
+\usepackage{natbib}
+\usepackage{hyperref}
+\usepackage{setspace}
+
+% ----------
+% Custom Appendix
+%----------
+
+% To renew numbering in appendix
+\newcommand*{\appheading}[1][Appendix]{%
+  \renewcommand{\thesubsection}{\Alph{subsection}}
+  \renewcommand{\thetable}{\Alph{subsection}.\arabic{table}}
+  \renewcommand{\thefigure}{\Alph{subsection}.\arabic{figure}}
+  \renewcommand{\theequation}{\Alph{subsection}.\arabic{equation}}
+  \numberwithin{equation}{subsection}
+  \numberwithin{figure}{subsection}
+  \numberwithin{table}{subsection}
+}
+
+\title{Candidate Wealth, Education, and Criminality in the 2018 General Elections in Pakistan\thanks{I am grateful for funding from the United States Institute of Peace that enabled this data collection. I also am grateful for a pre-doctoral fellowship from the World Bank and Lahore University of Management Sciences Pakistan$@$100, Research Solutions for their work entering the data, and to Muhammad Ibrahim Khan for excellent research assistance.}}
+
+\author{Luke Sonnet\footnote{Ph.D. candidate, Department of Political Science, University of California, Los Angeles, {\tt lukesonnet@ucla.edu}.}}
+
+\begin{document}
+
+\maketitle
+
+\doublespacing
+<<include=FALSE>>=
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+@
+
+
+<<>>=
+library(extrafont)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+options(knitr.table.format = "latex")
+
+res <- read_csv("../data/pk18_results_with_matched_keys.csv") %>%
+  filter(contest_status != "Postponed") %>%
+  mutate(candidate_rank = ifelse(contest_status == "Uncontested", 1, candidate_rank)) %>%
+  group_by(constituency_code) %>%
+  mutate(marginvote = ifelse(candidate_rank == 1, candidate_share - candidate_share[candidate_rank == 2],  candidate_share - candidate_share[candidate_rank == 1]))
+
+
+# replace NAs with 0s
+ass <- read_csv("../data/pk18_candidate_assets_master.csv") %>%
+  mutate_at(
+    vars(
+      starts_with("agri_land_holding"),
+      fy_net_assets_current,
+      starts_with("intern_trips"),
+      num_spouse_dependents,
+      contri_to_party,
+      crime_num
+    ),
+    funs(ifelse(is.na(.), 0, .))
+  )
+
+resd <- left_join(res, select(ass, -uid), by = "key", suffix = c(".res", ".assets")) %>%
+  mutate(fy_net_assets_current = case_when(
+     id %in% c(3842, 4228) ~ NA_real_,
+     id == 3643 ~ fy_net_assets_past,
+     TRUE ~ fy_net_assets_current)
+  )
+
+resd <- resd %>%
+  group_by(constituency_code.res) %>%
+  mutate(
+    found = !is.na(key),
+    last_rank_found = ifelse(
+      all(found),
+      max(candidate_rank),
+      min(candidate_rank[!found]) - 1
+    ),
+    max_rank = max(candidate_rank),
+    all_found = last_rank_found == max_rank,
+    top_2_cutoff = ifelse(
+      any(max_rank >= 2),
+      mean(candidate_share[candidate_rank <= 2]),
+      NA
+    ),
+    pct_found = mean(found),
+    dist_top_2_cutoff = candidate_share - top_2_cutoff,
+    win = candidate_rank == 1,
+    rank_group = cut(
+      candidate_rank,
+      c(0, 1.1, 2.2, 3.3, 4.4, 100),
+      c("First", "Second", "Third", "Fourth", "Fifth+")
+    ),
+    ln_asset = log(1+best_asset_guess),
+    # rank_group = cut(
+    #   candidate_rank,
+    #   breaks = c(0, 1, 2, 3, 10, 100),
+    #   labels = c("1", "2", "3", "4-10", "11+")
+    # ),
+    party_group = ifelse(
+      !(candidate_party %in% c(
+        "Independent",
+        "Pakistan Tehreek-e-Insaf",
+        "Pakistan Peoples Party Parliamentarians",
+        "Pakistan Muslim League (N)",
+        "Muttahida Majlis-e-Amal Pakistan",
+        "Tehreek-e-Labbaik Pakistan",
+        "Awami National Party",
+        "Grand Democratic Alliance",
+        "Muttahida Qaumi Movement Pakistan",
+        "Balochistan Awami Party",
+        "Balochistan National Party"
+      )
+      ),
+    "Other",
+    candidate_party
+    ),
+    party_group2 = ifelse(
+      !(candidate_party %in% c(
+        "Independent",
+        "Pakistan Tehreek-e-Insaf",
+        "Pakistan Peoples Party Parliamentarians",
+        "Pakistan Muslim League (N)",
+        "Muttahida Majlis-e-Amal Pakistan",
+        "Muttahida Qaumi Movement Pakistan",
+        "Awami National Party",
+        "Tehreek-e-Labbaik Pakistan"
+      )
+      ),
+    "Other",
+    candidate_party
+    ),
+    educ_group = case_when(
+      educ %in% c("Bachelors", "LLB/LLM") ~ "Bachelors",
+      educ %in% c("Doctorate") ~ "PhD",
+      educ %in% c("Vocational Bachelors") ~ "Tertiary, non-university",
+      educ %in% c("Matriculation", "Intermediate", "Primary", "Middle", "Below Primary", "None", "Vocational Matriculation", "Other", "Religious (Dars E Nizami)", "Religious (other)") ~ "High School or Less",
+      TRUE ~ educ
+    ),
+    educ_group = factor(
+      educ_group,
+      c(
+        "PhD",
+        "Masters",
+        "Bachelors",
+        "Tertiary, non-university",
+        "High School or Less"
+      )
+    ),
+    business_capital_total = bus_cap_total + remitted_total,
+    cash_total = cash_cost + cash_bank_cost,
+    other_assets_total = jewel_cost_with_imputed + motor_cost + other_assests_cost + aopu_cost + attp_cost
+  )
+@
+
+\section{Introduction}
+
+A dominant theme of the 2018 General Elections in Pakistan was wealth, ill-gotten or otherwise. The incumbent Prime Minister, Nawaz Sharif, was removed from office by Pakistan's Supreme Court a year before the election and then sentenced to jail just 10 days before the election for wealth uncovered by the Panama Papers\footnote{https://www.nytimes.com/2017/07/28/world/asia/pakistan-prime-minister-nawaz-sharif-removed.html}. The origins of this wealth could not be explained, and as a result the family and their party were punished in the court room and at the ballot box. While cases of grand corruption and hidden wealth dominate much of the public's attention, the declaration of candidate's assets, as well as their legal history, can also be revealing about the political class, their representation of the country, and what implications there may be for governance.
+
+From national level leaders \citep{besleyetal2011} to local officials \citep{chattopadhyayduflo2004}, there is ample evidence that the characteristics of rulers can shape the effectiveness of governance, as well as the types of policies that get implemented. Understanding the wealth, education, and criminal background of political candidates, and studying what kinds of candidates end up winning, can be revealing about how democracies and their institutions interact with candidate characteristics. In this report, I will document a new dataset of candidates declared assets, legal history, education, and other demographics for the vast majority of candidates for national and provincial assemblies in the 2018 elections.
+
+I first describe the candidate affidavit declaration process, before turning to the a discussion of the data. Then, I demonstrate that election winners are significantly wealthier than candidates who end up second or worse, that certain political parties are far more likely to rely on wealthy candidates to fill out their ranks, before demonstrating that candidate wealth is not sufficient to explain much of the variation in electoral outcomes. I replicate analyses from India that show that parties may be willing to nominate candidates with criminal charges if they can finance their own campaigns and even contribute to political parties, before concluding with some potential takeaways and general recommendations.
+
+%While the potential for ill-gotten gains in politics draws much of the public's attention, even declared assets can be revealing about how wealth influences politics. For example, \citep{fismanetal2014} show that state legislators in India do not declare increases in wealth unless they are ministers, indicating that individuals can enrich themselves in politics, but only if they are well positioned. Furthermore, Chandra shows that dynastic candidates tend to be wealthier, and that the relationship between social connections and wealth is quite strong and likely consequential for how candidates fare at the polls, and perhaps how they perform once in office.
+
+ %Who becomes a politician? The kind of candidate that ends up winning office can
+
+% FINDINGS
+
+\section{Asset declaration forms and data}
+
+Since the enactment of a new set of election laws in 2002, candidates for the national and provincial legislatures in Pakistan must submit a statement of assets and liabilities, as well as an affidavit regarding their relationship with the nominating party, criminal cases, education, and more.\footnote{See the amendments to the 1977 election law starting on page 195 \url{https://web.archive.org/web/20190228182507/https://www.ecp.gov.pk/Documents/ElectionLaws/Volume-I.pdf}}. Any false statements on this affidavit can result in disqualification and can result in criminal charges. The forms remain largely unchanged since the 2002 election, and an example can be found in Appendix~\ref{app:forms}.
+
+Despite the laws on the books, candidate asset data are not systematically released online or easily available at the ECP headquarters in Islamabad. When they are released, they are often low quality scans that are difficult to analyze en masse. In conjunction with the United States Institute of Peace, I have had all available data publicly released by the ECP for the 2018 elections manually entered, cleaned, and merged with the 2018 election results. As a result of the low quality and incomplete nature of the released data, not all of the candidates who contested the 2018 elections have data available. It is unclear whether this lack of data is due to candidates not submitting their asset declarations to the ECP, or whether the files were corrupted, forgotten, or in such bad condition they could not be entered and merged.
+
+In the data below, I will analyze candidate affidavit data for candidates we successfully located within the 2018 election results. From the ECP's online results, we have a total of \Sexpr{nrow(resd)} candidates who contested the 2018 elections.\footnote{See \url{https://github.com/colincookman/pakistan_election_results_2018}.} Of those, we were able to enter the assets of \Sexpr{sum(resd$found)} candidates, a \Sexpr{round(mean(resd$found)*100, 1)}\% recovery rate. Note that if a candidate contested more than one seat, I consider them a separate "candidate" in this count. Figure~\ref{fig:found} shows how the missingness breaks out by candidate rank and province (i.e. the position the candidate got in their respective 2018 race). These data combine candidates for national assembly (separated by province) and provincial assembly.
+
+\begin{figure}[h]
+  \centering
+  \caption{Matched affidavits by province and candidate rank}
+  \label{fig:found}
+<<fig.width=7, fig.height=2.5>>=
+res_prov_group_rank <- resd %>%
+  group_by(rank_group, province) %>%
+  summarize(share_found = mean(found))
+
+fixed_theme <- theme(text = element_text(family="LM Roman 10"), axis.text = element_text(color = "black"))
+
+ggplot(res_prov_group_rank, aes(x = rank_group, y = 100 * share_found)) +
+  geom_col() +
+  facet_grid(. ~ province) +
+  ylab("Percent found") +
+  xlab("Candidate rank") +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  fixed_theme
+
+@
+\end{figure}
+
+Many of the candidates in Balochistan were not found in the ECP's asset data. Most of this seems to be due to the ECP not uploading their asset forms, as entire constituencies in Balochistan were missing. In the other provinces and areas, missingness is much lower, and tends to go up as we consider lower and lower ranked candidates. Furthermore, there are always questions about the accuracy and legitimacy of self-reported data. As such, the results presented below should be interpreted with some caution. Nonetheless, recent trends point to an increase in the honesty of reporting \citep{sonnetkhan2018trib}, and the penalties for lying are serious if uncovered and enforced.
+
+\section{Wealth composition of politicians}
+
+The affidavits that politicians submit require them to report income broken down by different categories. Table~\ref{tab:affidavit} outlines the different categories, as well as how much wealth was reported in each category.  We report, in column-order, the percent of total wealth that is in each category, the percent of candidates that report some wealth in each category, and then the average and trimmed average wealth per candidate in both Pakistani Rupees (PKR) and United States dollars (\$). Candidates reported PKR values, and I use an exchange rate of 140 PKR to USD, which is valid for early 2019, but is higher than when these affidavits were submitted. Trimmed means (with the top and bottom 0.1\% of outliers trimmed) are reported as several candidates are very large outliers and make the untrimmed averages unrepresentative. 
+
+
+\begin{table}[p]
+\caption{Breakdown of declared candidate wealth by category} \label{tab:affidavit}
+<<results="asis">>=
+pkr <- scales::dollar_format(prefix = "")
+usd <- scales::dollar_format(prefix = "")
+resd %>%
+  mutate(other_assets_temp_total = other_assests_cost + aopu_cost + attp_cost) %>%
+  gather(asset_type, asset_value,
+         im_prop_pak_p_total,
+         im_prop_pako_p_total,
+         bus_cap_wpk_am_total,
+         bus_cap_opk_amount_total,
+         remitted_total,
+         invest_total,
+         motor_cost,
+         jewel_cost_with_imputed,
+         cash_total,
+         other_assets_temp_total) %>%
+  group_by(asset_type) %>%
+  summarize_at(
+    vars(asset_value),
+    funs(
+      assetsum = sum(., na.rm = TRUE),
+      assetmean = mean(., na.rm = TRUE),
+      trimmean = mean(., trim = 0.001, na.rm = TRUE),
+      assetany = mean(. > 0 , na.rm = TRUE)* 100
+    )
+  ) %>%
+  ungroup() %>%
+  mutate_at(vars(assetmean, trimmean), funs(usd = ./140)) %>%
+  mutate(
+    `of total` = sprintf("%2.1f", 100 * assetsum / sum(assetsum)),
+    `reporting any` = sprintf("%2.1f", assetany),
+    asset_type = recode_factor(
+      asset_type,
+      im_prop_pak_p_total = "Within Pakistan ",
+      im_prop_pako_p_total = "Outside Pakistan ",
+      bus_cap_wpk_am_total = "Within Pakistan",
+      bus_cap_opk_amount_total = "Outside Pakistan",
+      remitted_total = "Remitted",
+      invest_total = "Investments",
+      motor_cost = "Vehicles",
+      jewel_cost_with_imputed = "Jewelry",
+      cash_total = "Cash",
+      other_assets_temp_total = "Other assets"
+    ),
+    `Mean` = pkr(assetmean),
+    `Trim mean` = pkr(trimmean),
+    `Mean ` = usd(assetmean_usd),
+    `Trim mean ` = usd(trimmean_usd)
+  ) %>%
+  arrange(asset_type) %>%
+  rename(" " = asset_type) %>%
+  select(-assetsum, -assetmean, -trimmean, -assetany, -assetmean_usd, -trimmean_usd) %>%
+  kable(., booktabs = TRUE, format = "latex", align = rep(c("l", "c", "r"), times = c(1, 2, 4))) %>%
+  add_header_above(c(" " = 1, "%" = 1, "%" = 1, "PKR" = 2, "USD" = 2), line = FALSE) %>%
+  group_rows("Property", 1, 2, latex_gap_space = "0.1em")%>%
+  group_rows("Business capital", 3, 5, latex_gap_space = "1em")%>%
+  group_rows("Others", 6, 10, latex_gap_space = "1em")
+  
+@
+\end{table}
+
+\begin{figure}[p]
+  \centering
+  \caption{Trimmed average wealth composition by candidate rank}
+  \label{fig:composition}
+<<fig.width=6, fig.height=3>>=
+summarize_wealth <- function(grouped_data) {
+  grouped_data %>%
+    summarize_at(
+      vars(invest_total, im_prop_pak_p_total, im_prop_pako_p_total, business_capital_total, cash_total, other_assets_total),#, best_asset_guess),
+      funs(mean(., na.rm = TRUE, trim = 0.001))
+    ) %>%
+    gather(asset_type, asset_total, invest_total, im_prop_pak_p_total, im_prop_pako_p_total, business_capital_total, cash_total, other_assets_total) %>%
+    mutate(
+      asset_type = recode_factor(
+        asset_type,
+        `other_assets_total` = "Other assets     ",
+        `cash_total` = "Cash     ",
+        `invest_total` = "Investments     ",
+        `business_capital_total` = "Business capital     ",
+        `im_prop_pako_p_total` = "Property outside Pakistan     ",
+        `im_prop_pak_p_total` = "Property in Pakistan     "
+      )
+    )
+}
+
+wealth_plot <- list(
+  geom_col(),
+  scale_y_continuous("Thousands of PKR", labels=scales::dollar_format(prefix=""), sec.axis = sec_axis(name = "Thousands of USD", trans = ~./140, labels=scales::dollar_format(prefix="$")), expand=c(0,0)),
+  scale_fill_manual(
+    "Asset\nType", 
+    values = c("#a6cee3", "#1f78b4", "#b2df8a", "#33a02c", "#fb9a99", "#e31a1c"), 
+    guide =  guide_legend(reverse = TRUE)
+  ),
+  coord_flip(),
+  theme_bw(),
+  theme(legend.position = "bottom",
+        axis.title.y = element_blank(),
+        legend.spacing.x = unit(0.1, 'cm')),
+  fixed_theme
+)
+
+breakdown <- resd %>%
+  group_by(rank_group) %>%
+  summarize_wealth() %>%
+  mutate(rank_group = factor(rank_group, levels = rev(levels(rank_group))))
+
+ggplot(breakdown, aes(x = rank_group, y = asset_total / 1000, fill = asset_type)) +
+  wealth_plot
+@
+\end{figure}
+
+The vast majority of politicians in Pakistan have their wealth in property within Pakistan. Most candidates also report cash and jewelry, and around a quarter of candidates report business investments, although the amount of wealth in these categories is much lower than in property. These results confirm conventional wisdom that the political class in Pakistan is largely made up of land owners, and that they are significantly wealthier than the general population.
+
+However, are all candidates wealthy land-owners, or are those who end up winning elections different from the rest of the candidate pool? Figure~\ref{fig:composition} shows the average income (with the top and bottom 0.1\% of outliers trimmed) for each category by candidate rank. Winners are nearly twice as wealthy as second-placed candidates, and the further down the results one goes, the less wealth candidates report. Furthermore, winning candidates tend to have far more non-property business investments than other candidates, whose wealth is mostly made up of property.
+
+One possible interpretation of the above is that Pakistan Tehreek-e-Insaf (PTI), who won the plurality of provincial and national level seats, is simply made up of individuals with more business holdings. Indeed, when we look at Figure~\ref{fig:nonpti}, which shows the same figure as the above but for candidates outside the PTI, we notice that both first and second place candidates have similar business capital and investments. Therefore, in other elections where the PTI did not dominate, winners may have had a more traditional wealth profile, with property holdings making up a greater share of wealth. Due to the relatively high amount of party switching in Pakistan, it is also possible that those with large business holdings are attractive to parties and move between parties and that the winning candidates always have large business holdings. Until data on other elections becomes available, we are unable to answer these questions.
+
+\begin{figure}[h]
+  \centering
+  \caption{Trimmed average wealth composition by candidate rank for non-PTI candidates}
+  \label{fig:nonpti}
+<<fig.width=6, fig.height=3>>=
+breakdown <- resd %>%
+  filter(party_group2 != "Pakistan Tehreek-e-Insaf") %>%
+  group_by(rank_group) %>%
+  summarize_wealth() %>%
+  ungroup() %>%
+  mutate(rank_group = factor(rank_group, levels = rev(levels(rank_group))))
+
+ggplot(breakdown, aes(x = rank_group, y = asset_total / 1000, fill = asset_type)) +
+  wealth_plot
+@
+\end{figure}
+
+It is very difficult to ascertain whether wealth enables candidates to win office, or whether candidates who win office and get big ticket nominations are simply more likely to be more wealthy. However, we can look at how the margin of victory is related the the gap in wealth between candidates, to see whether competitive candidates, regardless of whether they are winners, tend to be wealthy, or whether it truly is the case that rich candidates are dominating politics. Figure~\ref{fig:mov} plots the difference in wealth between the first two candidates against the difference in their vote shares. As you move right along the x-axis, the margin of victory gets larger, and as you move up on the y-axis, the wealth disparity also grows larger. In Khyber Pakhtunkhwa and Punjab, it seems that the top two candidates often have similar levels of wealth, regardless of the margin of victory. One interpretation of this data is that there is a large pool of wealthy candidates in Punjab and KP, and large wealth gaps do not lead to large gaps in performance. Indeed, there are not many races with large margins of victory. However, in Sindh and Balochistan, there are some races where one candidate completely dominated, and the increase in the wealth gap in those races indicates that wealthy candidates there are able to keep other wealthy candidates from entering the race.
+
+\begin{figure}[h]
+  \centering
+  \caption{Margin of victory and difference in wealth}
+  \label{fig:mov}
+<<fig.width=6, fig.height=2>>=
+cons_gap <- resd %>%
+  group_by(constituency_code.res, province) %>%
+  filter(any(candidate_rank == 2), province != "Islamabad") %>%
+  summarize(mov = marginvote[candidate_rank == 1], asset_gap = ln_asset[candidate_rank == 1] - ln_asset[candidate_rank == 2])
+# estimatr::lm_robust(mov ~ asset_gap, data = cons_gap)
+# ggplot(resd %>% filter(candidate_rank == 1), aes(x = marginvote, y = ln_asset)) +
+  # geom_point() + 
+  # geom_smooth() +
+  # facet_wrap(~province)
+ggplot(cons_gap, aes(y = asset_gap, x = mov)) +
+  geom_point() + 
+  geom_smooth() +
+  ylab("Difference in ln(total wealth)") +
+  xlab("Margin of victory") +
+  facet_grid(~province) +
+  theme_bw() + 
+  fixed_theme
+@
+\end{figure}
+
+\section{Wealth and political parties}
+
+Another possible interpretation of the above relationship is that parties that are growing in popularity in the run-up to an election are better able to attract wealthy candidates who can finance their own campaigns and are likely to be well known. If a party name and leadership are attractive for wealthy candidates to associate themselves with, then we should observe the parties with the most to gain attracting wealthy candidates. In Figure~\ref{fig:party}, we show the wealth composition by major political party. PTI, who won the most seats and now run the federal government, have the wealthiest candidates. Furthermore, fitting their profile as a party that favors the business class, PTI candidates by far have the greatest business holdings. Other interesting patterns include the lack of property wealth of Muttahida Qaumi Movement (MQM) candidates. Largely an urban party, a greater share their candidate's wealth is in cash and non-property business holdings.
+
+\begin{figure}[h]
+  \centering
+  \caption{Trimmed average wealth composition by party}
+  \label{fig:party}
+<<fig.width=6, fig.height=4>>=
+# Add seats won
+party_breakdown <- resd %>%
+  group_by(party_group2) %>%
+  summarize_wealth()
+  
+party_order <- party_breakdown %>%
+  group_by(party_group2) %>%
+  summarize(total_party_assets = sum(asset_total)) %>%
+  arrange(total_party_assets)
+
+ggplot(party_breakdown,
+       aes(x = factor(party_group2, levels = party_order$party_group2),
+           y = asset_total / 1000, 
+           fill = asset_type)) +
+  wealth_plot
+@
+\end{figure}
+
+If we look within three of the major parties, we see remarkably similar trends, where the relationship between wealth and the margin of victory is very similar. The lines in Figure~\ref{fig:movparty} show similar rates of increase in the margin of victory as candidates wealth increase (note: a negative margin of victory is the amount that the candidate lost by). However, the different heights of the lines shows that for a given wealth, candidates in the PTI did far better than candidates in the other parties. Therefore, wealth is clearly not sufficient to secure elections, and even the wealthiest candidates cannot undo the power of party labels and the signals they send. This is likely good news for democratic accountability, as it demonstrates voters are responsive to parties and not just the power of the candidates nominated by the parties.
+
+\begin{figure}[h]
+  \centering
+  \caption{Wealth and margin of victory by major party}
+  \label{fig:movparty}
+<<fig.width=6, fig.height=3>>=
+# Add seats won
+ggplot(resd %>% filter(party_group2 %in% c("Pakistan Muslim League (N)", "Pakistan Tehreek-e-Insaf", "Pakistan Peoples Party Parliamentarians")), aes(y = marginvote, x = ln_asset, color = party_group2, shape = party_group2)) + 
+  geom_point(alpha = 0.2) +
+  geom_smooth(se = FALSE) +
+  #geom_hline(xintercept = 0) +
+  scale_color_brewer(palette = "Dark2") +
+  xlab("Log(total assets + 1)") +
+  ylab("Margin of Victory") +
+  theme_bw() +
+  theme(legend.title = element_blank()) +
+  fixed_theme
+@
+\end{figure}
+
+\subsection{Criminality and party contributions}
+
+The relationship between parties and candidates is more complicated than parties simply seeking out wealthy candidates. One puzzle from the neighboring country of India concerns the large number of candidates with criminal backgrounds who receive nominations and win elections. In a series of essays \cite{vaishnav2012} argues that these candidates are nominated and win because they have the financial means to support their own candidacies and perhaps even support the party. In Pakistan, we also see evidence for this pattern. Figure~\ref{fig:crimdec} shows that as candidates report more wealthier, the percentage self-reporting criminal charges also goes up. Furthermore, Figure~\ref{fig:contdec} shows that those wealthier candidates are also more likely to make contributions to their parties, and that the share of candidates with criminal charges contributing to their party is higher than for those without criminal charges for the higher asset deciles.
+
+\begin{figure}[h]
+  \centering
+  \caption{Percent of candidates with self-reported criminal charges by wealth decile}
+  \label{fig:crimdec}
+<<fig.width=6, fig.height=2.5>>=
+brs <- quantile(resd$best_asset_guess, probs = seq(0, 1, by = 0.1), na.rm = TRUE)
+deciles <- resd %>%
+  mutate(asset_deciles = cut(best_asset_guess, breaks = brs, include.lowest = TRUE, labels = 1:10)) %>%
+  group_by(asset_deciles) %>%
+  summarize(mean_crime_num = mean(crime_num > 0, na.rm = TRUE),
+            mean_party_contri = mean(contri_to_party > 0, na.rm = TRUE)) %>%
+  filter(!is.na(asset_deciles))
+
+ggplot(deciles, aes(x = asset_deciles, y = mean_crime_num * 100)) +
+  geom_col() +
+  scale_y_continuous("Percent with criminal charges", expand = expand_scale(add = c(0, 0.5))) +
+  xlab("Asset decile") +
+  theme_bw() + 
+  fixed_theme
+@
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \caption{Percent of candidates contributing to their party by wealth decile}
+  \label{fig:contdec}
+<<fig.width=6, fig.height=2.5>>=
+deciles <- resd %>%
+  mutate(asset_deciles = cut(best_asset_guess, breaks = brs, include.lowest = TRUE, labels = 1:10),
+         any_crime = factor(ifelse(crime_num == 0, "No criminal charges", "1+ criminal charge(s)"), levels = c("No criminal charges", "1+ criminal charge(s)"))) %>%
+  group_by(asset_deciles, any_crime) %>%
+  summarize(mean_party_contri = mean(contri_to_party > 0, na.rm = TRUE)) %>%
+  filter(!is.na(asset_deciles))
+
+ggplot(deciles, aes(x = asset_deciles, y = mean_party_contri * 100, fill = any_crime)) +
+  geom_col(position = "dodge") +
+  scale_y_continuous("Percent contributing to party", expand = expand_scale(add = c(0, 2))) +
+  scale_fill_brewer(palette = "Dark2") +
+  xlab("Asset decile") +
+  theme_bw() + 
+  theme(legend.title = element_blank()) +
+  fixed_theme
+@
+\end{figure}
+
+This provides suggestive evidence that parties are willing to look the other way for candidates with criminal charges, so long as they are wealthy and able to contribute to the political party. It is also possible that criminal charges are targeted at wealthier, successful candidates for political reasons. Unfortunately, it is very hard to know whether politically motivated charges are driving this relationship.
+
+\section{Conclusion}
+
+Candidates for political office in Pakistan are relatively wealthy, well educated, and wealth is correlated with performance in elections. Even when looking only among competitive candidates, a positive relationship between wealth and margin of victory remains. Nonetheless, party labels are still valuable, as even wealthy candidates had trouble winning on party tickets that were less fashionable. This provides evidence that parties have some bargaining power when their fortunes are looking upward. However, parties also appear willing to look the other way for candidates with criminal charges if they are able to finance their own campaigns and the parties themselves. This points to an inability or unwillingness of parties to avoid criminal candidates.
+
+One possible solution to break the dependence of political parties on wealthy candidates is to introduce public funding for campaigns or banning contributions from candidates to parties. Indeed, the ECP has considered such a law.\footnote{See \url{https://web.archive.org/web/*/https://www.dawn.com/news/1410255}.} Passing laws capping spending or providing public funds could increase competition and limit the influence of individual candidate finance on politics. Indeed, there is evidence that spending limits in Brazil promoted such equality \citep{avisetal2017}. Furthermore, it may help empower parties to select candidates based on non-financial dimensions, such as competence, ideological alignment, and track record. Another possible solution is to strengthen the power of those elected via quotas. Recent evidence from Sweden indicates entrenched, lower capacity candidates are the ones crowded out by quotas \citep{besleyetal2017}. Pakistan has some quotas via party lists, however these legislators may easily be ignored as they do not represent constituencies and do not crowd out other candidates. Replacing quotas with reserved seats or privileging the quota politicians in legislative voting processes may be a step toward ensuring higher candidate quality.
+
+Finally, this analysis and additional understanding of the political class of Pakistan is only possible because the ECP decided to release the forms online. Having this information be available is crucial to understanding the health of a democracy. The ECP should be applauded for making this information publicly available, and in the future should make efforts to systematize the collection and release of such data.
+
+<<fig.width=6, fig.height=4>>=
+# resd %>%
+#   arrange(-contri_to_party) %>%
+#   select(contri_to_party, candidate_party, 1:10)
+# resd %>%
+#   group_by(party_group2) %>%
+#   summarize(sd(ln_asset, na.rm = TRUE), cor(ln_asset, contri_to_party, use = "pairwise"))
+# ggplot(resd, aes(x = factor(crime_num > 0), y = ln_asset)) +
+#   geom_boxplot()
+@
+
+\bibliographystyle{apsr}
+\bibliography{../../../all}
+
+\clearpage
+\appendix
+
+\section{Affidavit and Asset Declaration Forms}
+\label{app:forms}
+
+\includepdf[pages={1-4}]{materials/affidavit.pdf}
+\includepdf[pages={1-3}]{materials/formb.pdf}
+
+\section{Other characteristics}
+
+\begin{table}[h]
+\caption{Breakdown of candidate characteristics by party} \label{tab:characteristics}
+\footnotesize
+<<results="asis">>=
+resd %>%
+  group_by(party_group2) %>%
+  summarize(
+    `Total` = n(),
+    winner_pct = mean(win),
+    `Winning` = paste0(sum(win), " (", sprintf("%2.1f", mean(win) * 100), " %)"),
+    `cases` = paste0(sum(crime_num > 0, na.rm = TRUE), " (", sprintf("%2.1f", mean(crime_num > 0, na.rm = TRUE) * 100), " %)"),
+    `contributions` = paste0(sum(contri_to_party > 0, na.rm = TRUE), " (", sprintf("%2.1f", mean(contri_to_party > 0, na.rm = TRUE) * 100), " %)"),
+    `HS education` = paste0(sum(educ_group != "High School or Less", na.rm = TRUE), " (", sprintf("%2.1f", mean(educ_group != "High School or Less", na.rm = TRUE) * 100), " %)")
+  ) %>%
+  arrange(-winner_pct) %>%
+  select(-winner_pct) %>%
+  rename(`Party` = party_group2) %>%
+  kable(., booktabs = TRUE, format = "latex", align = rep(c("l", "c"), times = c(1, 5))) %>%
+  add_header_above(c(" " = 3, "With criminal" = 1, "Made party" = 1, "With beyond" = 1), line = FALSE) %>% 
+  add_header_above(c(" " = 1, "Number of candidates" = 5), line = TRUE) 
+@
+\end{table}
+
+\end{document}
